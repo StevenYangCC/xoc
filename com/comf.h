@@ -274,6 +274,15 @@ INT gcdm(UINT num, ...);
 //Great common divisor for values stored in vector.
 INT gcdm(UINT num, Vector<INT> const& a);
 
+//Returns the number of contiguous low bytes that are all 0xFF in the given v.
+//The v must be of the form: (1ULL << (n * 8)) - 1
+//For example: 0x00000000000000FF -> n = 1
+//             0x000000000000FFFF -> n = 2
+//             0x00000000FFFFFFFF -> n = 4
+//The return value of the function is the number of 0xFF, which is 'n' in the
+//above example. If v is not in this valid form, returns 0.
+UINT countTrailingFFBytes(ULONGLONG v);
+
 //Compute the nearest power of 2 that not less than v.
 //e.g: given v is 60, return 64.
 inline UINT getNearestPowerOf2(UINT v)
@@ -469,6 +478,25 @@ inline UINT64 get64BitValueLowNBit(UINT64 val, UINT bitnum)
     ASSERT0((bitnum >= 1) && (bitnum <= 64));
     UINT shift = 64 - bitnum;
     return (val << shift) >> shift;
+}
+
+//Get unsigned left shift value of unsigned 64bit value.
+//For example:
+//given val: 0x1234 and bitnum: 8, it will return 0x123400.
+inline UINT64 get64BitValueLeftShift(UINT64 val, UINT bitnum)
+{
+    if (bitnum == 0) { return val; }
+    return val << bitnum;
+}
+
+//Get unsigned right shift value of unsigned 64bit value.
+//For example:
+//given val: 0xffeeddccbbaa1200 and bitnum: 8, it will return 0xffeeddccbbaa12.
+//given val: 0xffeeddccbbaa1200 and bitnum: 16, it will return 0xffeeddccbbaa.
+inline UINT64 get64BitValueRightShift(UINT64 val, UINT bitnum)
+{
+    if (bitnum == 0) { return val; }
+    return val >> bitnum;
 }
 
 //Get signal low n-bit value of signal 64bit value.

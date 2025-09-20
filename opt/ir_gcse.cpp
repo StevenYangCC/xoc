@@ -115,10 +115,23 @@ public:
 
 
 //
+//START TG
+//
+void TG::pickOutEH()
+{
+    List<IRBB*> * bbs = m_rg->getBBList();
+    for (IRBB * bb = bbs->get_head(); bb != nullptr; bb = bbs->get_next()) {
+        if (!bb->isExceptionHandler()) { continue; }
+        removeVertex(bb->id());
+    }
+}
+//END TG
+
+
+//
 //START GCSECtx
 //
-GCSECtx::GCSECtx(OptCtx & oc, xcom::DomTree const& domtree, ActMgr * am,
-                 GCSE * gcse)
+GCSECtx::GCSECtx(OptCtx & oc, ActMgr * am, GCSE * gcse)
     : PassCtx(&oc, am), m_gcse(gcse)
 {
     Region * rg = oc.getRegion();
@@ -127,16 +140,18 @@ GCSECtx::GCSECtx(OptCtx & oc, xcom::DomTree const& domtree, ActMgr * am,
     m_tg = nullptr;
     if (!m_cfg->hasEHEdge()) { return; }
 
-    //Initialize Temp CFG and pick out exception-handling-edge.
+    //Initialize Temp CFG and pick out exception-handling-edges.
     m_tg = allocTG(rg);
     m_tg->clone(*m_cfg, false, false);
-    m_tg->pickEH();
+    m_tg->pickOutEH();
     IRBB * entry = m_cfg->getEntry();
     ASSERTN(entry && BB_is_entry(entry), ("Not find CFG entry"));
-    xcom::Vertex * root = domtree.getVertex(entry->id());
-    m_tg->removeUnreachNode(entry->id());
+    //xcom::Vertex * root = domtree.getVertex(entry->id());
+    xcom::Vertex * tgroot = m_tg->getVertex(entry->id());
+    ASSERT0(tgroot);
+    m_tg->removeUnreachNode(tgroot->id());
     m_tg->computeDomAndIdom();
-    m_tg->computePdomAndIpdom(root);
+    m_tg->computePdomAndIpdom(tgroot);
 }
 
 
@@ -1081,7 +1096,7 @@ bool GCSE::perform(OptCtx & oc)
     ASSERTN(entry && BB_is_entry(entry), ("Not find CFG entry"));
     xcom::DomTree domtree;
     m_cfg->genDomTree(domtree);
-    GCSECtx ctx(oc, domtree, &m_am, this);
+    GCSECtx ctx(oc, &m_am, this);
     if (m_gvn != nullptr) {
         ASSERT0(getInferEVN());
         change = doPropVNInDomTreeOrder(domtree, ctx);

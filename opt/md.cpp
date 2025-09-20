@@ -1033,7 +1033,7 @@ void MDSystem::addDelegate(
 //            with global variables or import variables.
 //Note this function does NOT clean output, and will append result to output.
 void MDSystem::computeOverlap(
-    Region * current_rg, MD const* md, OUT MDSet & output,
+    Region const* current_rg, MD const* md, OUT MDSet & output,
     ConstMDIter & tabiter, DefMiscBitSetMgr & mbsmgr, bool strictly)
 {
     ASSERT0(md && current_rg);
@@ -1107,7 +1107,7 @@ void MDSystem::computeOverlapExactMD(
 //mditer: for local use.
 //strictly: set to true to compute if md may be overlapped with global memory.
 void MDSystem::computeOverlap(
-    Region * current_rg, MOD MDSet & mds, MOD Vector<MD const*> & added,
+    Region const* current_rg, MOD MDSet & mds, MOD Vector<MD const*> & added,
     ConstMDIter & mditer, DefMiscBitSetMgr & mbsmgr, bool strictly)
 {
     ASSERT0(current_rg);
@@ -1218,7 +1218,7 @@ bool MDSystem::isImportVar(MD const* md, Region const* rg)
 //strictly: set to true to compute if MD may be overlapped with delegate.
 //Note 'output' do not need to clean before invoke this function.
 void MDSystem::computeOverlap(
-    Region * current_rg, MDSet const& mds, OUT MDSet & output,
+    Region const* current_rg, MDSet const& mds, OUT MDSet & output,
     ConstMDIter & mditer, DefMiscBitSetMgr & mbsmgr, bool strictly)
 {
     ASSERT0(&mds != &output);

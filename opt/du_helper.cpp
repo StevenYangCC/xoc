@@ -31,8 +31,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace xoc {
 
-static bool checkChange(Region const* rg, bool mdssa_changed,
-                        bool prssa_changed, bool classic_du_changed)
+static bool checkChange(
+    Region const* rg, bool mdssa_changed, bool prssa_changed,
+    bool classic_du_changed)
 {
     if (g_opt_level == OPT_LEVEL0) { return true; }
     if (rg->getMDSSAMgr() != nullptr || rg->getPRSSAMgr() != nullptr ||
@@ -45,8 +46,8 @@ static bool checkChange(Region const* rg, bool mdssa_changed,
 }
 
 
-void changeDefForPartialUseSet(IR * olddef, IR * newdef,
-                               IRSet const& partial_useset, Region * rg)
+void changeDefForPartialUseSet(
+    IR * olddef, IR * newdef, IRSet const& partial_useset, Region * rg)
 {
     ASSERT0(olddef->is_stmt() && newdef->is_stmt());
     ASSERTN(olddef->isMemRef() && newdef->isMemRef(),
@@ -169,8 +170,9 @@ static IR * getUniqueDef(IRSet const* defset, Region * rg)
 //Note the function allows NonPR->PR or PR->NonPR.
 //The function is an extended version of 'changeUse'. The function will handle
 //the combination of different category of Memory Reference, e.g: PR<->NonPR.
-void changeUseEx(IR * olduse, IR * newuse, IRSet const* defset, Region * rg,
-                 OptCtx const& oc)
+void changeUseEx(
+    IR * olduse, IR * newuse, IRSet const* defset, Region * rg,
+    OptCtx const& oc)
 {
     ASSERT0(olduse->is_exp() && newuse->is_exp());
     if (newuse->isMemOpnd()) {
@@ -509,8 +511,8 @@ static void addUseInPRSSAMode(IR * to_ir, IR const* from_ir)
 
 
 //The function only process single IR rather than IR tree.
-static void addUseInMDSSAMode(IR * to_ir, IR const* from_ir,
-                              MDSSAMgr * mdssamgr, Region * rg)
+static void addUseInMDSSAMode(
+    IR * to_ir, IR const* from_ir, MDSSAMgr * mdssamgr, Region * rg)
 {
     ASSERT0(to_ir->isMemRefNonPR() && from_ir->isMemRefNonPR());
     MDSSAInfo * info = mdssamgr->getMDSSAInfoIfAny(from_ir);
@@ -607,8 +609,8 @@ void addUseForTree(IR * to, IR const* from, Region * rg)
 //Return the VN if found, and the indirect operation level.
 //e.g: given ILD(ILD(p)), return p and indirect_level is 2.
 //e.g2: given IST(ILD(q)), return q and indirect_level is 2.
-VN const* getVNOfIndirectOp(IR const* ir, OUT UINT * indirect_level,
-                            GVN const* gvn)
+VN const* getVNOfIndirectOp(
+    IR const* ir, OUT UINT * indirect_level, GVN const* gvn)
 {
     ASSERT0(ir && ir->isIndirectMemOp());
     ASSERT0(gvn && gvn->is_valid());
@@ -658,8 +660,8 @@ CLASSIC_DU:
 }
 
 
-bool hasSameUniqueMustDefForTree(IR const* ir1, IR const* ir2,
-                                 Region const* rg)
+bool hasSameUniqueMustDefForTree(
+    IR const* ir1, IR const* ir2, Region const* rg)
 {
     ASSERT0(ir1 && ir2 && ir1->is_exp() && ir2->is_exp());
     if (ir1->isMemOpnd() && ir2->isMemOpnd()) {
@@ -823,8 +825,8 @@ CLASSIC_DU:
 }
 
 
-IR * findUniqueDefInLoopForMustRef(IR const* exp, LI<IRBB> const* li,
-                                   Region const* rg, OUT IRSet * set)
+IR * findUniqueDefInLoopForMustRef(
+    IR const* exp, LI<IRBB> const* li, Region const* rg, OUT IRSet * set)
 {
     ASSERT0(li && exp && exp->is_exp());
     ASSERTN(exp->isMemRef(), ("not memref operation"));
@@ -1056,8 +1058,8 @@ void movePhi(IRBB * from, IRBB * to, Region * rg)
 //Collect all USE expressions that inside loop of 'def' into 'useset'.
 //This function give priority to PRSSA and MDSSA DU chain and then classic
 //DU chain in doing collection.
-void collectUseSetInLoop(IR const* def, Region const* rg, LI<IRBB> const* li,
-                         OUT IRSet * useset)
+void collectUseSetInLoop(
+    IR const* def, Region const* rg, LI<IRBB> const* li, OUT IRSet * useset)
 {
     ASSERT0(def->is_stmt());
     ASSERTN(def->isMemRef(), ("should not query its DU"));
@@ -1223,8 +1225,8 @@ void copyAndAddMDSSAOcc(IR * tgt, IR const* src, Region * rg)
 }
 
 
-bool hasSameUniqueMustDefForIsomoKidTree(IR const* ir1, IR const* ir2,
-                                         Region const* rg)
+bool hasSameUniqueMustDefForIsomoKidTree(
+    IR const* ir1, IR const* ir2, Region const* rg)
 {
     if (ir1 == ir2) { return true; }
     ASSERTN(!ir1->is_leaf() && !ir2->is_leaf(),
@@ -1241,8 +1243,8 @@ bool hasSameUniqueMustDefForIsomoKidTree(IR const* ir1, IR const* ir2,
         return hasSameUniqueMustDefForTree(ir1->getBase(), ir2->getBase(), rg);
     SWITCH_CASE_ARRAY_OP: {
         ASSERT0(ir2->isArrayOp());
-        if (!xoc::hasSameUniqueMustDefForTree(ir1->getBase(), ir2->getBase(),
-                                              rg)) {
+        if (!xoc::hasSameUniqueMustDefForTree(
+                ir1->getBase(), ir2->getBase(), rg)) {
             return false;
         }
         IR const* sub1 = ARR_sub_list(ir1);
@@ -1271,9 +1273,10 @@ bool hasSameUniqueMustDefForIsomoKidTree(IR const* ir1, IR const* ir2,
 }
 
 
-bool isLoopCarried(IR const* ir, Region const* rg, bool is_aggressive,
-                   bool include_itselfstmt, LI<IRBB> const* li, GVN const* gvn,
-                   OUT LoopDepInfo & info)
+bool isLoopCarried(
+    IR const* ir, Region const* rg, bool is_aggressive,
+    bool include_itselfstmt, LI<IRBB> const* li, GVN const* gvn,
+    OUT LoopDepInfo & info)
 {
     ASSERT0(li);
     xcom::List<IR*> lst;
@@ -1291,9 +1294,9 @@ bool isLoopCarried(IR const* ir, Region const* rg, bool is_aggressive,
 }
 
 
-bool isLoopCarried(IR const* ir1, IR const* ir2, bool costly_analysis,
-                   LI<IRBB> const* li, Region const* rg, GVN const* gvn,
-                   OUT LoopDepInfo & info)
+bool isLoopCarried(
+    IR const* ir1, IR const* ir2, bool costly_analysis, LI<IRBB> const* li,
+    Region const* rg, GVN const* gvn, OUT LoopDepInfo & info)
 {
     if (!xoc::isDependent(ir1, ir2, costly_analysis, rg)) {
         return false;
@@ -1403,8 +1406,8 @@ bool hasLoopReduceDep(
 }
 
 
-bool hasLoopReduceDepForIRTree(IR const* ir, Region const* rg,
-                               LI<IRBB> const* li)
+bool hasLoopReduceDepForIRTree(
+    IR const* ir, Region const* rg, LI<IRBB> const* li)
 {
     ASSERT0(ir->is_exp());
     ConstIRIter it;
@@ -1513,8 +1516,9 @@ bool isLoopCarried(
 }
 
 
-bool isLoopIndependent(IR const* ir1, IR const* ir2, bool costly_analysis,
-                       LI<IRBB> const* li, Region const* rg, GVN const* gvn)
+bool isLoopIndependent(
+    IR const* ir1, IR const* ir2, bool costly_analysis, LI<IRBB> const* li,
+    Region const* rg, GVN const* gvn)
 {
     if (ir1 == ir2) { return true; }
     if (!ir1->isMemRef() || !ir2->isMemRef()) { return false; }
@@ -1630,8 +1634,8 @@ static bool isDependentForCallStmt(
 }
 
 
-bool isDependent(IR const* ir1, IR const* ir2, bool costly_analysis,
-                 Region const* rg)
+bool isDependent(
+    IR const* ir1, IR const* ir2, bool costly_analysis, Region const* rg)
 {
     ASSERT0(!ir1->is_undef() && !ir2->is_undef());
     if (ir1 == ir2) { return true; }
@@ -1678,8 +1682,8 @@ bool isDependent(IR const* ir1, IR const* ir2, bool costly_analysis,
 }
 
 
-bool isDependentForTree(IR const* ir1, IR const* ir2, bool costly_analysis,
-                        Region const* rg)
+bool isDependentForTree(
+    IR const* ir1, IR const* ir2, bool costly_analysis, Region const* rg)
 {
     if (ir1 == ir2) { return true; }
     ConstIRIter it;
@@ -1750,8 +1754,8 @@ void findAndSetLiveInDefForTree(
 }
 
 
-static void removeUseOfNonPR(IR const* call, Region const* rg,
-                             MOD DUMgr * dumgr)
+static void removeUseOfNonPR(
+    IR const* call, Region const* rg, MOD DUMgr * dumgr)
 {
     ASSERT0(call->isCallStmt());
     DUSet * useset = call->getDUSet();
@@ -1846,8 +1850,8 @@ void removeClassicDUChain(Region * rg, bool rmprdu, bool rmnonprdu)
             it.clean();
             for (IR * t = iterInit(ir, it, true);
                  t != nullptr; t = iterNext(it, true)) {
-                removeClassicDUChainForIR(t, rg, dumgr, rmprdu,
-                                          rmnonprdu);
+                removeClassicDUChainForIR(
+                    t, rg, dumgr, rmprdu, rmnonprdu);
             }
         }
     }
@@ -2050,5 +2054,66 @@ void ComputeMD2DefCnt::compute()
     applyMayDefEffect(only_maydef);
 }
 //END ComputeMD2DefCnt
+
+
+class VFToCompRef {
+public:
+    bool always_recompute;
+    Region const* rg;
+public:
+    VFToCompRef() {}
+    bool visitIR(MOD IR * ir, OUT bool & is_term)
+    {
+        if (!ir->isDirectMemOp() && !ir->is_id()) {
+            //Keep visiting kid and sibling.
+            return true;
+        }
+        MD const* mustref = ir->getMustRef();
+        if (mustref == nullptr || always_recompute) {
+            xoc::computeMustAndMayRefForDirectOp(ir, rg);
+        } else {
+            xoc::computeMayRef(ir, rg);
+        }
+        //Keep visiting kid and sibling.
+        return true;
+    }
+};
+
+
+void computeMustAndMayRefForDirectOpForTree(
+    IR * ir, Region const* rg, bool always_recompute)
+{
+    class IterTree : public VisitIRTree<VFToCompRef> {
+    public:
+        IterTree(VFToCompRef & vf) : VisitIRTree(vf) {}
+    };
+    VFToCompRef vf;
+    vf.rg = rg;
+    vf.always_recompute = always_recompute;
+    IterTree it(vf);
+    it.visit(ir);
+}
+
+
+void computeMustAndMayRefForDirectOp(IR * ir, Region const* rg)
+{
+    ASSERT0(ir->isDirectMemOp() || ir->is_id());
+    const_cast<Region*>(rg)->getMDMgr()->allocRef(ir);
+    if (ir->is_id()) {
+        //ID does not have MayRef.
+        ir->cleanMayRef();
+        return;
+    }
+    computeMayRef(ir, rg);
+}
+
+
+void computeMayRef(IR * ir, Region const* rg)
+{
+    ASSERT0(ir->isMemRef());
+    DUMgr * dumgr = rg->getDUMgr();
+    ASSERT0(dumgr);
+    dumgr->computeOverlapMDSet(ir, true);
+}
 
 } //namespace xoc

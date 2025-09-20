@@ -22,6 +22,7 @@ ir_gcse.o\
 ir_licm.o\
 ir_middle_opt.o\
 ir_high_opt.o\
+ir_ext.o\
 ir_expr_tab.o\
 cdg.o\
 eval.o\

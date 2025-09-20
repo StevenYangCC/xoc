@@ -202,9 +202,6 @@ protected:
 
     void appendCallIRArgsToStack(IR const* call_ir, Var const* v);
 
-    //Get the start address of parameters in kernel function.
-    virtual void appendIRToGetStartAddressOfParamsInEntryFunc(OUT PRNO & prno);
-
     //GCOVR_EXCL_START
     //This function is used for passing paramater which is a memory variable and
     //is located in global or spm space. The variable will be loaded in the
@@ -330,7 +327,7 @@ protected:
     //    store.param.u32 [param1 + 8], $0;
     //    load.stack.u32 $0, [st1 + 12];
     //    store.param.u32 [param1 + 12], $0;
-    Type const* getCurrentDataType(UINT align);
+    virtual Type const* getCurrentDataType(UINT align);
 
     void getFormalParamViaRegister(OUT IRList & irlist, IR * ir);
 
@@ -338,6 +335,44 @@ protected:
     //via registers.
     virtual Type const* getParamRegisterType(Type const* ty, Reg) const
     { return ty; }
+
+    //Get the start address prno of parameters in kernel function.
+    //For kernel function, host puts all parameters into memory and
+    //passes the first param address to the slave through a register.
+    //e.g:
+    // .entry doing0(.param.s32 p0, .param.u64 p1, .param.b<16> p2)
+    // {
+    //     ...
+    // }
+    //The parameters list as:
+    // ------------------ current_offset = 0
+    // |  param.s32 p0  |
+    // ------------------ current_offset = 4
+    // |  param.u64 p1  |
+    // ------------------ current_offset = 12
+    // |  param.b<16> p2|
+    // ------------------
+    //$start_address: the start address of total parameters, stored in the
+    //$start_address_prno register.
+    //The address of param = $start_address + current_offset.
+    //
+    //For some architectures, there is a reserved buffer for specific use in the
+    //front of the param memory. So we need append a IR like
+    //"add buffer_size" to calculate the actual start address.
+    //e.g:
+    //The parameters list as:
+    // ...
+    // | buffer |
+    // ...
+    // ------------------ current_offset = buffer_size
+    // |  param.s32 p0  |
+    // ------------------ current_offset = buffer_size + 4
+    // |  param.u64 p1  |
+    // ------------------ current_offset = buffer_size + 12
+    // |  param.b<16> p2|
+    // ------------------
+    //$start_address = $old_start_address_prno + buffer_size.
+    virtual PRNO getStartAddressPrnoOfParamsInEntryFuncAndAppendIRIfNeeded();
 
     //Init registers binding info before allocated for each function.
     virtual void initRegBindInfo();

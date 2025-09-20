@@ -446,16 +446,16 @@ void VectActMgr::dumpAct(IR const* ir, CHAR const* format, ...) const
     if (format != nullptr) {
         acth.info->strcat("%s", tmpbuf.getBuf());
     }
-    getRegion()->getLogMgr()->incIndent(4);
+    getRegion()->getLogMgr()->incIndent(2);
     xcom::StrBuf irbuf(64);
-    dumpIRToBuf(ir, getRegion(), irbuf);
-    getRegion()->getLogMgr()->decIndent(4);
+    xoc::dumpIRToBuf(ir, getRegion(), irbuf);
+    getRegion()->getLogMgr()->decIndent(2);
     acth.info->strcat(irbuf);
 }
 
 
-void VectActMgr::dumpLinRepAct(IVLinearRep const& linrep,
-                               CHAR const* format, ...) const
+void VectActMgr::dumpLinRepAct(
+    IVLinearRep const& linrep, CHAR const* format, ...) const
 {
     if (!getRegion()->isLogMgrInit()) { return; }
     ASSERTN(format, ("no action info"));
@@ -559,13 +559,15 @@ void VectOp::addOpnd(IR const* occ, Type const* expty, MOD VectOpMgr & mgr)
 //
 //START VectCtx
 //
-VectCtx::VectCtx(LI<IRBB> const* li, IVBoundInfo const* bi, OptCtx const& oc,
-                 Vectorization * vect, GVN * gvn): m_vect(vect), m_oc(oc)
+VectCtx::VectCtx(LI<IRBB> const* li, IVBoundInfo const* bi, OptCtx & oc,
+                 Vectorization * vect, GVN * gvn, ActMgr * am)
+    : PassCtx(&oc, am), m_vect(vect)
 {
     ASSERT0(li && bi);
     m_li = li;
     m_ivr = m_vect->getIVR();
     m_rg = m_vect->getRegion();
+    m_cfg = m_rg->getCFG();
     m_irmgr = m_rg->getIRMgr();
     m_iv_bound_info = bi;
     m_licm_anactx = nullptr;
@@ -575,6 +577,23 @@ VectCtx::VectCtx(LI<IRBB> const* li, IVBoundInfo const* bi, OptCtx const& oc,
     m_vectaccdesc_mgr = new VectAccDescMgr();
     ASSERT0(gvn);
     m_infer_evn = gvn->getAndGenInferEVN();
+    m_epilloop_comp_remain = nullptr;
+}
+
+
+VectCtx::~VectCtx()
+{
+    delete m_lrmgr;
+    delete m_vectaccdesc_mgr;
+    m_infer_evn = nullptr;
+    for (IR const* t = getPrerequisiteOpList().get_head();
+         t != nullptr; t = getPrerequisiteOpList().get_next()) {
+        getRegion()->freeIRTree(const_cast<IR*>(t));
+    }
+    for (IR const* t = getInitOpList().get_head();
+         t != nullptr; t = getInitOpList().get_next()) {
+        getRegion()->freeIRTree(const_cast<IR*>(t));
+    }
 }
 
 
@@ -607,12 +626,15 @@ BIV const* VectCtx::getBIV() const
 
 void VectCtx::dump() const
 {
+    if (!getRegion()->isLogMgrInit()) { return; }
     note(m_rg, "\n==-- DUMP VectCtx --==");
     m_rg->getLogMgr()->incIndent(2);
-    getLI()->dump(getRegion());
-
-    //Dump IV bound.
-    getIVBoundInfo()->dump(m_rg);
+    if (getLI() != nullptr) {
+        getLI()->dump(getRegion());
+    }
+    if (getIVBoundInfo() != nullptr) {
+        getIVBoundInfo()->dump(m_rg);
+    }
     getVectAccDescMgr().dump(m_rg);
     VectCtx * pthis = const_cast<VectCtx*>(this);
     if (pthis->getCandList().get_elem_count() > 0) {
@@ -623,6 +645,15 @@ void VectCtx::dump() const
         for (IR * ir = pthis->getCandList().get_head(&it);
              ir != nullptr; ir = pthis->getCandList().get_next(&it)) {
             xoc::dumpIR(ir, m_rg);
+        }
+        m_rg->getLogMgr()->decIndent(2);
+    }
+    if (pthis->getInitOpList().get_elem_count() > 0) {
+        note(m_rg, "\n-- INIT STMT LIST --");
+        m_rg->getLogMgr()->incIndent(2);
+        for (IR const* op = pthis->getInitOpList().get_head();
+             op != nullptr; op = pthis->getInitOpList().get_next()) {
+            xoc::dumpIR(op, m_rg);
         }
         m_rg->getLogMgr()->decIndent(2);
     }
@@ -642,7 +673,6 @@ void VectCtx::dump() const
         for (pthis->getResCandList().get_head(&it);
              it != nullptr; pthis->getResCandList().get_next(&it)) {
             IR * ir = it->val();
-            ASSERT0(ir->is_stmt());
             xoc::dumpIR(ir, m_rg);
         }
         m_rg->getLogMgr()->decIndent(2);
@@ -658,12 +688,23 @@ void VectCtx::dump() const
         }
         m_rg->getLogMgr()->decIndent(2);
     }
-    if (pthis->getResVOpList().get_elem_count() > 0) {
+    if (pthis->getMainLoopResOpList().get_elem_count() > 0) {
         //Dump the finally generated vector operation.
-        note(m_rg, "\n-- GENERATED VECTOR STMT LIST --");
+        note(m_rg, "\n-- GENERATED MAIN LOOP RESULT VECTOR-OP LIST --");
         m_rg->getLogMgr()->incIndent(2);
-        for (IR const* op = pthis->getResVOpList().get_head();
-             op != nullptr; op = pthis->getResVOpList().get_next()) {
+        for (IR const* op = pthis->getMainLoopResOpList().get_head();
+             op != nullptr; op = pthis->getMainLoopResOpList().get_next()) {
+            ASSERT0(op->is_stmt());
+            xoc::dumpIR(op, m_rg);
+        }
+        m_rg->getLogMgr()->decIndent(2);
+    }
+    if (pthis->getEpilLoopResOpList().get_elem_count() > 0) {
+        //Dump the finally generated vector operation.
+        note(m_rg, "\n-- GENERATED EPILOG LOOP RESULT VECTOR-OP LIST --");
+        m_rg->getLogMgr()->incIndent(2);
+        for (IR const* op = pthis->getEpilLoopResOpList().get_head();
+             op != nullptr; op = pthis->getEpilLoopResOpList().get_next()) {
             ASSERT0(op->is_stmt());
             xoc::dumpIR(op, m_rg);
         }
@@ -707,13 +748,6 @@ void VectCtx::addPrerequisiteOp(IR * ir)
 }
 
 
-void VectCtx::addGeneratedStmt(IR * ir)
-{
-    ASSERT0(!m_generated_stmt_list.find(ir));
-    m_generated_stmt_list.append_tail(ir);
-}
-
-
 void VectCtx::addStmtCand(IR * ir)
 {
     m_stmt_cand_list.append_tail(ir);
@@ -732,7 +766,137 @@ bool VectCtx::verify() const
     }
     return true;
 }
+
+
+void VectCtx::cleanAfterLoopReconstruct()
+{
+    m_li = nullptr;
+    m_iv_bound_info = nullptr;
+    getVectAccDescMgr().clean();
+    getCandList().clean();
+    getPrerequisiteOpList().clean();
+    getResCandList().clean();
+    getCandVOpList().clean();
+}
+
+
+void VectCtx::addGeneratedStmt(IR * ir)
+{
+    getGeneratedStmtList().append_tail(ir);
+}
+
+
+void VectCtx::addGeneratedStmtFromBB(IRBB const* bb)
+{
+    BBIRListIter it;
+    for (IR * ir = const_cast<IRBB*>(bb)->getIRList().get_head(&it);
+         ir != nullptr; ir = const_cast<IRBB*>(bb)->getIRList().get_next(&it)) {
+        if (ir->is_label()) { continue; }
+        addGeneratedStmt(ir);
+    }
+}
+
+
+void VectCtx::recordEpillLoopCompRemain(IR const* comp_remain)
+{
+    ASSERT0(comp_remain);
+    ASSERT0(comp_remain->is_stmt() || comp_remain->is_exp());
+    ASSERT0(m_epilloop_comp_remain == nullptr);
+    m_epilloop_comp_remain = comp_remain;
+}
+
+
+UINT VectCtx::getCurInd() const
+{
+    return getRegion()->getLogMgr()->getIndent();
+}
 //END VectCtx
+
+
+//
+//START GenerateMask
+//
+class GenerateMask {
+public:
+    //Return true if generate mask-op successful.
+    bool tryGenerateMaskVectOp(MOD VectCtx & ctx);
+};
+
+bool GenerateMask::tryGenerateMaskVectOp(MOD VectCtx & ctx)
+{
+    IVBoundInfo const* boundinfo = ctx.getIVBoundInfo();
+    //ASSERTN(!boundinfo->isTCImm(), ("no need to generate loop"));
+    BIV const* biv = boundinfo->getBIV();
+    ASSERT0(biv);
+    //IR * iv = ctx.getVect()->buildRefIV(biv);
+    //IR * init = biv->genInitExp(m_irmgr);
+    //IR * step = genBIVStepExpWithMaxVectorElemNum(biv, ctx);
+    //IR * det = biv->genBoundExp(*boundinfo, m_ivr, m_irmgr, m_rg);
+
+    IR const* ivref = nullptr;
+    IR const* bound_stmt = boundinfo->getBound();
+    ASSERT0(bound_stmt && bound_stmt->isConditionalBr());
+    bool is_closed_range = false;
+    IR const* upper_bound = nullptr;
+    if (!ctx.getIVR()->extractIVBoundExpFromStmt(
+            biv, bound_stmt, &ivref, &upper_bound, &is_closed_range)) {
+        ctx.getActMgr()->dumpAct(
+            "can not generate mask op for LOOP%u because extracting"
+            " loop-boundary info is failed.", ctx.getLI()->id());
+        return false;
+    }
+    ASSERT0(ivref && upper_bound);
+    DUMMYUSE(is_closed_range);
+    IR * iv = ctx.getRegion()->dupIRTree(ivref);
+
+    //remain = upper_bound - iv;
+    //mask = (1 << remain) - 1;
+    //Replace vect_op with masked_vect_op, which masked_vop = vect_op, mask;
+    Type const* ivty = iv->getType();
+    IRMgrExt * irmgrext = ctx.getIRMgrExt();
+    Region * rg = ctx.getRegion();
+    IR * comp_remain = irmgrext->buildStorePR(
+        irmgrext->buildBinaryOpSimp(
+            IR_SUB, ivty, rg->dupIRTree(upper_bound), iv));
+    ctx.getActMgr()->dumpAct(
+        "the trip-count computation of remain loop is:%s\n"
+        "where %s\n is IV",
+        DumpIRTree().dump(comp_remain, rg, ctx.getCurInd() + 2),
+        DumpIRTree().dump(iv, rg, ctx.getCurInd() + 2));
+
+    IR * comp_mask = irmgrext->buildStorePR(
+        irmgrext->buildBinaryOpSimp(IR_SUB, ivty,
+            irmgrext->buildBinaryOpSimp(IR_LSL, ivty,
+                irmgrext->buildImmInt(1, ivty),
+                rg->dupIsomoExpTree(comp_remain)),
+            irmgrext->buildImmInt(1, ivty)));
+    ctx.getActMgr()->dumpAct(
+        "the mask computation of remain part data is: %s\n",
+        DumpIRTree().dump(comp_mask, rg, ctx.getCurInd() + 2));
+
+    ctx.recordEpillLoopCompRemain(comp_remain);
+    ctx.getEpilLoopMaskOpList().append_tail(comp_remain);
+    ctx.getEpilLoopMaskOpList().append_tail(comp_mask);
+    IRListIter it;
+    for (IR const* vop = ctx.getMainLoopResOpList().get_head(&it);
+         vop != nullptr; vop = ctx.getMainLoopResOpList().get_next(&it)) {
+        ASSERT0(vop->hasRHS());
+        //IR * dup_vop = rg->dupIsomoStmtExceptRHS(vop);
+        IR * masked_vop = irmgrext->buildMaskOp(
+            rg->dupIRTreeList(vop->getRHS()),
+            rg->dupIsomoExpTree(comp_mask), vop->getType());
+        IR * dup_vop = irmgrext->buildMaskStoreStmtViaIsomoIR(
+            vop, masked_vop, rg->dupIsomoExpTree(comp_mask), vop->getType());
+        ASSERT0(dup_vop->isMaskStoreStmt());
+        ctx.getEpilLoopResOpList().append_tail(dup_vop);
+        ctx.getActMgr()->dumpAct(
+            "generate mask operation for remain part data:%s\n",
+            DumpIRTree().dump(dup_vop, rg, ctx.getCurInd() + 2));
+        ASSERT0(xoc::verifyIRList(dup_vop, ctx.getRegion()));
+    }
+    return true;
+}
+//END GenerateMask
 
 
 //
@@ -1182,8 +1346,8 @@ bool Vectorization::makeVectOpndByUna(
         VECTOP_expected_type(vop0) = newopndty;
         return true;
     }
-    getActMgr().dumpAct(ir,
-        "operand can not be transformed to vector operation");
+    getActMgr().dumpAct(
+        ir, "operand can not be transformed to vector operation");
     return false;
 }
 
@@ -1362,12 +1526,10 @@ bool Vectorization::isStrideSuitableToVect(
     }
     ASSERT0(accdesc.getLinearAcc().hasVar());
 
-    //CASE:We should permit access-index is either DIV or BIV.
+    //CASE:We should permit that access-index can be both DIV and BIV.
     //if (accdesc.getIndexVar(m_rg) != ctx.getBIV()->getExpOccVar()) {
     //    //Index-Var is not BIV, and it is at least DIV.
     //    ASSERTN(accdesc.getIV()->is_div(), ("at least is one kind of IV"));
-    //    getActMgr().dumpAct(VECT_CK_VECTOP_INDEX_IS_NOT_RELATED_TO_IV,
-    //                        accdesc.getIndexVarExp(), ctx);
     //    return false;
     //}
     if (!accdesc.getLinearAcc().hasIntCoeff()) {
@@ -1573,13 +1735,13 @@ IR * Vectorization::genBinByVectOp(VectOp const& vop, OUT VectCtx & ctx)
     ASSERT0(vop.getOpnd(0) && vop.getOpnd(1));
     IR * opnd0 = genExpByVectOp(*vop.getOpnd(0), ctx);
     IR * opnd1 = genExpByVectOp(*vop.getOpnd(1), ctx);
-    IR * binop = m_irmgr->buildBinaryOp(
+    IR * binop = m_irmgr->buildBinaryOpSimp(
         vop.getOccCode(), vop.getExpectType(), opnd0, opnd1);
     if (!needStoreValueToPR(vop)) { return binop; }
     getActMgr().dumpAct(binop,
         "generate stpr operation to hold the intermediate value:");
     IR * stpr = m_irmgr->buildStorePR(vop.getExpectType(), binop);
-    ctx.getResVOpList().append_tail(stpr);
+    ctx.getMainLoopResOpList().append_tail(stpr);
     return m_rg->dupIsomoExpTree(stpr);
 }
 
@@ -1595,7 +1757,7 @@ IR * Vectorization::genUnaByVectOp(VectOp const& vop, OUT VectCtx & ctx)
     getActMgr().dumpAct(unaop,
         "generate stpr operation to hold the intermediate value:");
     IR * stpr = m_irmgr->buildStorePR(vop.getExpectType(), unaop);
-    ctx.getResVOpList().append_tail(stpr);
+    ctx.getMainLoopResOpList().append_tail(stpr);
     return m_rg->dupIsomoExpTree(stpr);
 }
 
@@ -1680,7 +1842,7 @@ void Vectorization::genStmtByVectOp(VectOp const& vop, OUT VectCtx & ctx)
     stmt->setType(vop.getExpectType());
     ASSERT0(stmt->is_vec());
     ASSERT0(stmt->hasRHS());
-    ctx.getResVOpList().append_tail(stmt);
+    ctx.getMainLoopResOpList().append_tail(stmt);
 }
 
 
@@ -1802,32 +1964,6 @@ bool Vectorization::addDUChainForPROp(
     bool succ = m_prssamgr->constructDesignatedRegion(ssarg);
     ASSERT0(PRSSAMgr::verifyPRSSAInfo(m_rg, *oc));
     return succ;
-}
-
-
-bool Vectorization::addDUChainForVectOp(
-    VectCtx const& ctx, MOD IRBB * root, MOD OptCtx * oc) const
-{
-    ASSERT0(usePRSSADU() && useMDSSADU());
-    if (!oc->is_dom_valid()) {
-        //SSA's DfMgr need domset info.
-        m_rg->getPassMgr()->checkValidAndRecompute(oc, PASS_DOM, PASS_UNDEF);
-    }
-    //Even through all vectorized operations are placed in identical BB,
-    //the followed functions aslo may iterate DomTree for some reason.
-    //Therefore we recompute DomTree here. And in most testcases, it is
-    //not costly.
-    //Note if trip-count is immediate, there is only one BB generated. If
-    //trip-count is variable, a do-loop generated which will be simplified
-    //to multiple BBs after.
-    xcom::DomTree domtree;
-    m_cfg->genDomTree(domtree);
-    xcom::DefMiscBitSetMgr sbsmgr;
-    SSARegion ssarg(&sbsmgr, domtree, m_rg, oc, (ActMgr*)&getActMgr());
-    if (!constructSSARegion(ctx, root, ssarg)) { return false; }
-    if (!addDUChainForPROp(ssarg, oc)) { return false; }
-    if (!addDUChainForNonPROp(ssarg, oc)) { return false; }
-    return true;
 }
 
 
@@ -2249,11 +2385,8 @@ bool Vectorization::vectorize(MOD VectCtx & ctx)
         return false;
     }
     LoopDepInfoSet set;
-    LoopDepCtx ldactx(getRegion(), ctx.getLI());
+    LoopDepCtx ldactx(getRegion(), ctx.getLI(), &m_am);
     analyzeDep(ctx, ldactx, set);
-    if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpVectorization()) {
-        ldactx.dump();
-    }
     if (!checkLoopReduceDep(ctx, set)) { return false; }
     if (!checkLoopCarrDep(ctx, set)) { return false; }
     if (!checkScalarStmt(ctx)) { return false; }
@@ -2290,9 +2423,6 @@ bool Vectorization::postProcessAfterReconstructLoop(
         //SSA/MDSSA info especially PHI operands incrementally.
         removed = true;
     }
-    //New loop has been generated, LoopInfo and IVR need to be recomputed.
-    oc.setInvalidPass(PASS_LOOP_INFO);
-    oc.setInvalidPass(PASS_IVR);
     if (!useMDSSADU() || !oc.is_dom_valid()) {
         //If DomInfo is invalid, then MDSSA info is also not maintained.
         oc.setInvalidMDSSA();
@@ -2317,15 +2447,15 @@ bool Vectorization::postProcessAfterReconstructLoop(
 }
 
 
-static void dupPrerequisiteOpToList(
-    OUT IR ** head, MOD IR ** last, VectCtx const& ctx)
+static void dupStmtToList(
+    OUT IR ** head, MOD IR ** last, VectCtx::ResConstCandList const& lst,
+    Region const* rg)
 {
     ASSERT0(head && last);
-    VectCtx & pctx = const_cast<VectCtx&>(ctx);
-    for (IR const* op = pctx.getPrerequisiteOpList().get_head();
-         op != nullptr; op = pctx.getPrerequisiteOpList().get_next()) {
-        IR * dupop = ctx.getRegion()->dupIRTree(op);
-        xcom::add_next(head, last, dupop);
+    VectCtx::ResConstCandListIter it;
+    for (IR const* op = lst.get_head(&it);
+         op != nullptr; op = lst.get_next(&it)) {
+        xcom::add_next(head, last, rg->dupIRTree(op));
     }
 }
 
@@ -2336,6 +2466,10 @@ static void addPrerequisiteOpToBBAndRecordGeneratedOp(
     for (IR const* op = ctx.getPrerequisiteOpList().get_head();
          op != nullptr; op = ctx.getPrerequisiteOpList().get_next()) {
         IR * dupop = ctx.getRegion()->dupIRTree(op);
+
+        //Compute MDRef for new dupop.
+        xoc::computeMustAndMayRefForDirectOpForTree(
+            dupop, ctx.getRegion(), false);
         bb->getIRList().append_tail_ex(dupop);
         ctx.addGeneratedStmt(dupop);
     }
@@ -2344,8 +2478,11 @@ static void addPrerequisiteOpToBBAndRecordGeneratedOp(
 
 static void addVectOpToBBAndRecordGeneratedOp(MOD VectCtx & ctx, MOD IRBB * bb)
 {
-    for (IR * vectop = ctx.getResVOpList().get_head();
-         vectop != nullptr; vectop = ctx.getResVOpList().get_next()) {
+    for (IR * vectop = ctx.getMainLoopResOpList().get_head();
+         vectop != nullptr; vectop = ctx.getMainLoopResOpList().get_next()) {
+        //Compute MDRef for new dupop.
+        xoc::computeMustAndMayRefForDirectOpForTree(
+            vectop, ctx.getRegion(), false);
         bb->getIRList().append_tail_ex(vectop);
         ctx.addGeneratedStmt(vectop);
     }
@@ -2403,55 +2540,16 @@ static IR const* findRefToInitValOfIVInLoopHead(VectCtx const& ctx)
 }
 
 
-bool Vectorization::addReduceIVOpToBBAndRecordGeneratedOp(
-    MOD VectCtx & ctx, MOD IRBB * bb) const
-{
-    IVBoundInfo const* bd = ctx.getIVBoundInfo();
-    ASSERT0(bd);
-    BIV const* biv = bd->getBIV();
-    ASSERT0(biv);
-    IR const* exp = biv->getInitExp();
-    ASSERT0(exp);
-    Type const* ty = exp->getType();
-    HOST_UINT step = getMaxVectorElemNum(ty, ctx);
-
-    //Find the EXP that use the result of reduce-operation's result.
-    IR const* exp_use_redres = findRefToInitValOfIVInLoopHead(ctx);
-    ASSERT0(exp_use_redres);
-    IR * redstmt = getIVR()->tryBuildReduceStmtOfIV(exp_use_redres, biv, step);
-    if (redstmt == nullptr) {
-        getActMgr().dumpAct(exp_use_redres,
-            "the reduce-operation in placeholder BB is too "
-            "complicated to build, the situation prevents the "
-            "legal vector-operation generation");
-        return false;
-    }
-    bb->getIRList().append_tail_ex(redstmt);
-    ctx.addGeneratedStmt(redstmt);
-    return true;
-}
-
-
-static void addVectOpToList(OUT IR ** head, MOD IR ** last, VectCtx const& ctx)
+static void appendStmtToList(
+    OUT IR ** head, MOD IR ** last, VectCtx::ResOpList & lst)
 {
     ASSERT0(head && last);
-    VectCtx & pctx = const_cast<VectCtx&>(ctx);
-    for (IR * vectop = pctx.getResVOpList().get_head();
-         vectop != nullptr; vectop = pctx.getResVOpList().get_next()) {
+    VectCtx::ResOpListIter it;
+    for (IR * vectop = lst.get_head(&it);
+         vectop != nullptr; vectop = lst.get_next(&it)) {
         ASSERTN(!vectop->is_phi(), ("PHI should not be considered"));
         xcom::add_next(head, last, vectop);
     }
-}
-
-
-bool Vectorization::addVectOpAndDepOpToBB(
-    MOD VectCtx & ctx, MOD IRBB * bb) const
-{
-    ASSERT0(bb);
-    if (!genDepOpOutsideLoop(ctx)) { return false; }
-    addPrerequisiteOpToBBAndRecordGeneratedOp(ctx, bb);
-    addVectOpToBBAndRecordGeneratedOp(ctx, bb);
-    return addReduceIVOpToBBAndRecordGeneratedOp(ctx, bb);
 }
 
 
@@ -2474,30 +2572,14 @@ IR * Vectorization::buildRefIV(BIV const* biv, Type const* ty) const
 }
 
 
-IR * Vectorization::genBIVStrideStepExp(
-    BIV const* biv, VectCtx const& ctx) const
-{
-    ASSERT0(biv->getInitValType());
-    Type const* ty = biv->getInitValType();
-    HOST_UINT elemnum = getMaxVectorElemNum(ty, ctx);
-    ASSERT0(biv->isInc() || biv->isDec());
-    IR_CODE irc = biv->isInc() ? IR_ADD : IR_SUB;
-    ASSERTN(biv->getStepValInt() == 1,
-            ("TODO:need to support stride vector op"));
-    return m_irmgr->buildBinaryOp(irc, ty,
-        buildRefIV(biv, ty),
-        m_irmgr->buildImmInt(biv->getStepValInt() * elemnum, ty));
-}
-
-
 //In C++, local declared class should NOT be used in template parameters of a
 //template class. Because the template class may be instanced outside the
 //function and the local type in function is invisible.
 class VFToPreOp {
 public:
     bool succ_gen_prerep_ops;
-    VectCtx::ResCandList * deplst;
-    VectCtx::ResCandList * prereqlst;
+    VectCtx::ResConstCandList * initoplst;
+    VectCtx::ResConstCandList * prereqlst;
     LI<IRBB> const* li;
     Region const* rg;
     VectCtx const* ctx;
@@ -2539,26 +2621,306 @@ public:
             return false;
         }
         ASSERT0(initdef);
-        deplst->append_tail(initdef);
+        initoplst->append_tail(initdef);
         handled_phi_tab.append(kdef);
         return true;
     }
 };
 
 
-bool Vectorization::genDepOpOutsideLoop(MOD VectCtx & ctx) const
+static IRBB * insertPlaceHolderBeforeLoop(VectCtx const& ctx)
+{
+    LI<IRBB> const* li = ctx.getLI();
+    ASSERT0(li);
+    IRBB * placeholder = nullptr;
+    xoc::insertPreheader(
+        li, ctx.getRegion(), &placeholder, ctx.getOptCtx(), true);
+    return placeholder;
+}
+
+
+static void transferIRToBBAndUpdateCtx(
+    MOD IRBB * placeholder, MOD VectCtx & ctx, IR * newirlist)
+{
+    ASSERT0(newirlist);
+    //Append new IRs into placeholder.
+    BBIRList & irlst = placeholder->getIRList();
+    for (IR * x = xcom::removehead(&newirlist);
+         x != nullptr; x = xcom::removehead(&newirlist)) {
+        if (x->is_label()) {
+            //Transfer Label to BBIRList also, because the subsequently
+            //BB reconstruction will split the BB into multiple legalism BB.
+            ((xcom::EList<IR*, IR2Holder>&)irlst).append_tail(x);
+
+            //Label operation will be simplified into BB attached info.
+            //Do NOT use BBIRList's API. And no need to record it.
+            continue;
+        }
+        irlst.append_tail(x);
+    }
+}
+
+
+//Pick up label and undef stmt out of effect-list that can not be handled
+//by DCE.
+static void pickUpBBIllegalStmt(MOD ConstIRList & efflist)
+{
+    ConstIRListIter it;
+    ConstIRListIter nextit;
+    for (efflist.get_head(&it); it != nullptr; it = nextit) {
+        nextit = it;
+        efflist.get_next(&nextit);
+        IR const* ir = it->val();
+        if (ir->is_undef() || ir->is_label()) {
+            //There are stmts that have been removed for some reason.
+            efflist.remove(it);
+            continue;
+        }
+        ASSERT0(ir->is_stmt());
+    }
+}
+
+
+static void removeDesignatedStmtsByDCE(
+    ConstIRList & efflst, VectCtx const& ctx, MOD DCECtx & dcectx)
+{
+    DeadCodeElim * dce = ctx.getVect()->getDCE();
+    ASSERT0(dce);
+    //Here we just call DCE to remove original loop.
+    bool remove_branch_stmt = false;
+    bool org_is_dce_aggr = dce->isAggressive();
+    dce->setAggressive(true);
+
+    //Here we just call DCE to remove original loop.
+    bool removed = dce->performByEffectIRList(
+        efflst, dcectx, remove_branch_stmt);
+    ASSERT0(removed);
+
+    //Recovery original options.
+    dce->setAggressive(org_is_dce_aggr);
+}
+
+
+static void removeOrgScalarLoop(MOD VectCtx & ctx)
+{
+    //Note after this function CFG and SSA may changed if branch-op removed.
+    DCECtx dcectx(ctx.getOptCtx(), *ctx.getVect()->getSBSMgr().getSegMgr(),
+                  ctx.getActMgr());
+    ConstIRList efflst;
+    collectStmtOutsideLoop(
+        ctx.getLI(), ctx.getCFG()->getBBList(), efflst, dcectx);
+    removeDesignatedStmtsByDCE(efflst, ctx, dcectx);
+
+    //Clean context info after CFG rebuilt.
+    ctx.cleanAfterLoopReconstruct();
+}
+
+
+static IR * simplifyVectLoop(
+    VectCtx const& ctx, IR * loop, OUT bool & need_recst_bblst)
+{
+    ASSERT0(loop->is_doloop());
+    SimpCtx simpctx(const_cast<OptCtx*>(ctx.getOptCtx()));
+    simpctx.setSimpCFS();
+    SIMP_cfs_only(&simpctx) = true;
+    IRSimp * simppass = (IRSimp*)ctx.getRegion()->getPassMgr()->
+        queryPass(PASS_IRSIMP);
+    ASSERT0(simppass);
+    IR * newloop = simppass->simplifyStmt(loop, &simpctx);
+    ASSERT0(newloop);
+    need_recst_bblst = simpctx.needReconstructBBList();
+
+    //Assign MD reference for new generated IRs.
+    ctx.getRegion()->getMDMgr()->assignMD(newloop, true, true);
+    return newloop;
+}
+
+
+//Usually, if a target machine supports mask operation, the epilog operation
+//always be a several mask operations which no need to build a loop. Otherwise
+//we have to build a loop which we call the loop epilog-loop to compute the
+//remaining data.
+class ConstructLoop {
+public:
+    ConstructLoop() {}
+
+    //Construct vectorized main loop according to 'ctx'.
+    //Return the new BB that holds the main loop.
+    IRBB * constructVectMainLoop(
+        MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const;
+
+    //Construct vectorized epilog loop according to 'ctx'.
+    //Return the new BB that holds the epilog loop.
+    IRBB * constructVectEpilLoop(
+        MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const;
+
+    //Construct vectorized mask operations according to 'ctx'.
+    //Return the new BB that holds these operations.
+    IRBB * constructVectEpilOp(
+        MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const;
+
+    //Construct vectorized mask operations or epilog-loop according to 'ctx'.
+    //Return the new BB that holds these operations.
+    IRBB * constructVectEpilOpOrLoop(
+        MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const;
+
+    IR * genVectMainLoop(MOD VectCtx & ctx) const;
+    IR * genVectEpilLoop(MOD VectCtx & ctx) const;
+    IR * genVectEpilOpList(MOD VectCtx & ctx) const;
+    IR * genBIVStepExpWithMaxVectorElemNum(
+        BIV const* biv, VectCtx const& ctx) const;
+    IR * genBIVStepExpByImm(
+        BIV const* biv, VectCtx const& ctx, HOST_UINT elemnum) const;
+    IR * genBIVStepExpByExp(
+        BIV const* biv, VectCtx const& ctx, IR const* comp_elemnum) const;
+    bool genDepOpOutsideLoop(MOD VectCtx & ctx) const;
+};
+
+
+IR * ConstructLoop::genBIVStepExpByExp(
+    BIV const* biv, VectCtx const& ctx, IR const* comp_elemnum) const
+{
+    ASSERT0(comp_elemnum);
+    ASSERT0(comp_elemnum->is_stmt() || comp_elemnum->is_exp());
+    ASSERT0(biv->getInitValType());
+    Type const* ty = biv->getInitValType();
+    ASSERT0(biv->isInc() || biv->isDec());
+    IR_CODE irc = biv->isInc() ? IR_ADD : IR_SUB;
+    ASSERTN(biv->getStepValInt() == 1,
+            ("TODO:need to support stride vector op"));
+    return ctx.getIRMgr()->buildBinaryOpSimp(
+        irc, ty,
+        ctx.getVect()->buildRefIV(biv, ty),
+        ctx.getIRMgr()->buildBinaryOpSimp(
+            IR_MUL, ty,
+            ctx.getIRMgr()->buildImmInt(biv->getStepValInt(), ty),
+            ctx.getRegion()->dupIsomoExpTree(comp_elemnum)));
+}
+
+
+IR * ConstructLoop::genBIVStepExpByImm(
+    BIV const* biv, VectCtx const& ctx, HOST_UINT elemnum) const
+{
+    ASSERT0(elemnum > 0);
+    ASSERT0(biv->getInitValType());
+    Type const* ty = biv->getInitValType();
+    ASSERT0(biv->isInc() || biv->isDec());
+    IR_CODE irc = biv->isInc() ? IR_ADD : IR_SUB;
+    ASSERTN(biv->getStepValInt() == 1,
+            ("TODO:need to support stride vector op"));
+    return ctx.getIRMgr()->buildBinaryOpSimp(
+        irc, ty,
+        ctx.getVect()->buildRefIV(biv, ty),
+        ctx.getIRMgr()->buildImmInt(biv->getStepValInt() * elemnum, ty));
+}
+
+
+IR * ConstructLoop::genBIVStepExpWithMaxVectorElemNum(
+    BIV const* biv, VectCtx const& ctx) const
+{
+    ASSERT0(biv->getInitValType());
+    Type const* ty = biv->getInitValType();
+    HOST_UINT elemnum = ctx.getVect()->getMaxVectorElemNum(ty, ctx);
+    return genBIVStepExpByImm(biv, ctx, elemnum);
+}
+
+
+IR * ConstructLoop::genVectEpilOpList(MOD VectCtx & ctx) const
+{
+    Region * rg = ctx.getRegion();
+    IR * reslst = nullptr;
+    IR * last = nullptr;
+    if (!genDepOpOutsideLoop(ctx)) { return nullptr; }
+    dupStmtToList(&reslst, &last, ctx.getPrerequisiteOpList(), rg);
+    appendStmtToList(&reslst, &last, ctx.getEpilLoopMaskOpList());
+    appendStmtToList(&reslst, &last, ctx.getEpilLoopResOpList());
+    ASSERT0(reslst);
+    return reslst;
+}
+
+
+IR * ConstructLoop::genVectEpilLoop(MOD VectCtx & ctx) const
+{
+    Region * rg = ctx.getRegion();
+    IR * reslst = nullptr;
+    IR * last = nullptr;
+    IVBoundInfo const* boundinfo = ctx.getIVBoundInfo();
+    ASSERTN(!boundinfo->isTCImm(), ("no need to generate loop"));
+    BIV const* biv = boundinfo->getBIV();
+    ASSERT0(biv);
+    IR * iv = ctx.getVect()->buildRefIV(biv);
+
+    //Init the tailog-loop IV with the value of main-loop's IV.
+    IR * init = rg->dupIRTree(iv);
+
+    //Gen the step of IV.
+    IR const* comp_remain = ctx.getEpilLoopCompRemain();
+    ASSERT0(comp_remain && comp_remain->is_stmt());
+    IR * step = genBIVStepExpByExp(biv, ctx, comp_remain);
+
+    //Gen the DET of Loop.
+    IR * det = biv->genBoundExp(*boundinfo, ctx.getIVR(), ctx.getIRMgr(), rg);
+
+    //Gen the epilog-loop.
+    IR * doloop = ctx.getIRMgr()->buildDoLoop(iv, init, det, step, nullptr);
+    if (!genDepOpOutsideLoop(ctx)) { return nullptr; }
+    IR * bodylast = nullptr;
+    dupStmtToList(
+        &LOOP_body(doloop), &bodylast, ctx.getPrerequisiteOpList(), rg);
+    appendStmtToList(
+        &LOOP_body(doloop), &bodylast, ctx.getEpilLoopMaskOpList());
+    appendStmtToList(&LOOP_body(doloop), &bodylast, ctx.getEpilLoopResOpList());
+    ASSERT0(LOOP_body(doloop));
+    xcom::add_next(&reslst, &last, doloop);
+    return reslst;
+}
+
+
+IR * ConstructLoop::genVectMainLoop(MOD VectCtx & ctx) const
+{
+    IVBoundInfo const* boundinfo = ctx.getIVBoundInfo();
+    ASSERTN(!boundinfo->isTCImm(), ("no need to generate loop"));
+    BIV const* biv = boundinfo->getBIV();
+    ASSERT0(biv);
+    IR * iv = ctx.getVect()->buildRefIV(biv);
+    IR * init = biv->genInitExp(ctx.getIRMgr());
+    IR * step = genBIVStepExpWithMaxVectorElemNum(biv, ctx);
+    IR * det = biv->genBoundExp(
+        *boundinfo, ctx.getIVR(), ctx.getIRMgr(), ctx.getRegion());
+    IR * doloop = ctx.getIRMgr()->buildDoLoop(iv, init, det, step, nullptr);
+    if (!genDepOpOutsideLoop(ctx)) { return nullptr; }
+    IR * reslst = nullptr;
+    IR * last = nullptr;
+
+    //Init Op has been in 'init'.
+    //Region * rg = ctx.getRegion();
+    //dupStmtToList(
+    //    &reslst, &last, ctx.getInitOpList(), rg);
+
+    IR * bodylast = nullptr;
+    dupStmtToList(
+        &LOOP_body(doloop), &bodylast, ctx.getPrerequisiteOpList(),
+        ctx.getRegion());
+    appendStmtToList(&LOOP_body(doloop), &bodylast, ctx.getMainLoopResOpList());
+    ASSERT0(LOOP_body(doloop));
+    xcom::add_next(&reslst, &last, doloop);
+    ctx.getActMgr()->dumpAct(doloop, "generate vectorized main loop:");
+    return reslst;
+}
+
+
+bool ConstructLoop::genDepOpOutsideLoop(MOD VectCtx & ctx) const
 {
     class IterTree : public VisitIRTree<VFToPreOp> {
     public: IterTree(VFToPreOp & vf) : VisitIRTree<VFToPreOp>(vf) {}
     };
-    VectCtx::ResCandList deplst;
     VFToPreOp vf;
-    vf.deplst = &deplst;
+    vf.initoplst = &ctx.getInitOpList();
     vf.prereqlst = &ctx.getPrerequisiteOpList();
     vf.li = ctx.getLI();
-    vf.rg = m_rg;
+    vf.rg = ctx.getRegion();
     vf.ctx = &ctx;
-    vf.ivr = getIVR();
+    vf.ivr = ctx.getIVR();
     IterTree it(vf);
     for (IR const* op = ctx.getPrerequisiteOpList().get_head();
          op != nullptr; op = ctx.getPrerequisiteOpList().get_next()) {
@@ -2566,216 +2928,322 @@ bool Vectorization::genDepOpOutsideLoop(MOD VectCtx & ctx) const
         it.visit(op);
         if (!vf.succ_gen_prerep_ops) { return false; }
     }
-    ctx.getPrerequisiteOpList().append_head(deplst);
     return true; //success
 }
 
 
-IR * Vectorization::genVectMainLoop(MOD VectCtx & ctx) const
+IRBB * ConstructLoop::constructVectMainLoop(
+    MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const
 {
-    IVBoundInfo const* boundinfo = ctx.getIVBoundInfo();
-    ASSERTN(!boundinfo->isTCImm(), ("no need to generate loop"));
-    BIV const* biv = boundinfo->getBIV();
-    ASSERT0(biv);
-    IR * iv = buildRefIV(biv);
-    IR * init = biv->genInitExp(m_irmgr);
-    IR * step = genBIVStrideStepExp(biv, ctx);
-    IR * det = biv->genBoundExp(*boundinfo, m_ivr, m_irmgr, m_rg);
-    IR * doloop = m_irmgr->buildDoLoop(iv, init, det, step, nullptr);
-    if (!genDepOpOutsideLoop(ctx)) { return nullptr; }
-    IR * last = nullptr;
-    dupPrerequisiteOpToList(&LOOP_body(doloop), &last, ctx);
-    addVectOpToList(&LOOP_body(doloop), &last, ctx);
-    ASSERT0(LOOP_body(doloop));
-    ASSERT0(ctx.getGeneratedStmtList().get_elem_count() == 0);
-    ctx.addGeneratedStmt(doloop);
-    return doloop;
-}
-
-
-static IRBB * insertPlaceHolderBeforeLoop(
-    VectCtx const& ctx, MOD Region * rg, MOD OptCtx & oc)
-{
-    LI<IRBB> const* li = ctx.getLI();
-    ASSERT0(li);
-    IRBB * placeholder = nullptr;
-    xoc::insertPreheader(li, rg, &placeholder, &oc, true);
-    return placeholder;
-}
-
-
-static void addIRListToBBAndUpdateGeneratedStmtList(
-    MOD IRBB * placeholder, MOD VectCtx & ctx, IR * newirlist)
-{
-    ASSERT0(newirlist);
-    ctx.getGeneratedStmtList().clean();
-
-    //Append new IRs into placeholder.
-    xcom::EList<IR*, IR2Holder> & bbirlst = placeholder->getIRList();
-    for (IR * x = xcom::removehead(&newirlist);
-         x != nullptr; x = xcom::removehead(&newirlist)) {
-        bbirlst.append_tail(x);
-        if (x->is_label()) {
-            //Label operation will be simplified into BB attached info.
-            //No need to record it.
-            continue;
-        }
-        ctx.addGeneratedStmt(x);
-    }
-}
-
-
-void Vectorization::removeOrgScalarLoop(MOD VectCtx & ctx, MOD OptCtx & oc)
-{
-    //Here we just call DCE to remove original loop.
-    bool remove_branch_stmt = false;
-    bool org_is_dce_aggr = m_dce->isAggressive();
-    m_dce->setAggressive(true);
-
-    //Note after this function CFG and SSA may changed if branch-op removed.
-    DCECtx dcectx(&oc, *getSBSMgr().getSegMgr(), &m_am);
-    ConstIRList efflst;
-    collectStmtOutsideLoop(ctx.getLI(), m_cfg->getBBList(), efflst, dcectx);
-
-    //Here we just call DCE to remove original loop.
-    bool removed = m_dce->performByEffectIRList(
-        efflst, dcectx, remove_branch_stmt);
-    ASSERT0(removed);
-
-    //Recovery original options.
-    m_dce->setAggressive(org_is_dce_aggr);
-}
-
-
-IRBB * Vectorization::constructVectMainBB(
-    MOD VectCtx & ctx, MOD OptCtx & oc) const
-{
-    //Insert a placeholder BB to hold new loop.
-    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx, m_rg, oc);
-    if (!addVectOpAndDepOpToBB(ctx, placeholder)) { return nullptr; }
-
-    //Add DU chain to satisfy the verification in subsequent DCE and
-    //CFG optimizations.
-    //addDUChainForVectOp(ctx, m_cfg->getEntry(), &oc); //hack remove!
-    addDUChainForVectOp(ctx, placeholder, &oc); //hack open!!
-    ASSERT0(PRSSAMgr::verifyPRSSAInfo(m_rg, oc));
-    ASSERT0(MDSSAMgr::verifyMDSSAInfo(m_rg, oc));
-    return placeholder;
-}
-
-
-static IR * simplifyVectMainLoop(
-    MOD Region * rg, VectCtx const& ctx, IR * loop,
-    OUT bool & need_recst_bblst)
-{
-    ASSERT0(loop->is_doloop());
-    SimpCtx simpctx(const_cast<OptCtx*>(ctx.getOptCtx()));
-    simpctx.setSimpCFS();
-    SIMP_cfs_only(&simpctx) = true;
-    IRSimp * simppass = (IRSimp*)rg->getPassMgr()->queryPass(PASS_IRSIMP);
-    ASSERT0(simppass);
-    IR * newloop = simppass->simplifyStmt(loop, &simpctx);
+    IR * loop = genVectMainLoop(ctx);
+    ASSERT0(loop);
+    IR * newloop = simplifyVectLoop(ctx, loop, need_recst_bblst);
     ASSERT0(newloop);
-    need_recst_bblst = simpctx.needReconstructBBList();
+    ASSERT0(xoc::verifyIRList(newloop, ctx.getRegion()));
 
-    //Assign MD reference for new generated IRs.
-    rg->getMDMgr()->assignMD(newloop, true, true);
-    return newloop;
+    //Insert a placeholder BB to hold new loop.
+    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx);
+    ASSERT0(placeholder);
+
+    //Append stmts of newloop into placeholder.
+    transferIRToBBAndUpdateCtx(placeholder, ctx, newloop);
+    ctx.addGeneratedStmtFromBB(placeholder);
+    return placeholder;
 }
 
 
-IRBB * Vectorization::constructVectMainLoopAndUpdateCFG(
-    MOD VectCtx & ctx, MOD OptCtx & oc) const
+IRBB * ConstructLoop::constructVectEpilLoop(
+    MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const
+{
+    IR * loop = genVectEpilLoop(ctx);
+    ASSERT0(loop);
+    IR * epilstmts = simplifyVectLoop(ctx, loop, need_recst_bblst);
+    ASSERT0(epilstmts);
+    ASSERT0(xoc::verifyIRList(epilstmts, ctx.getRegion()));
+
+    //Insert a placeholder BB to hold new epilog-loop.
+    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx);
+    ASSERT0(placeholder);
+
+    //Append stmts of epilstmts into placeholder.
+    transferIRToBBAndUpdateCtx(placeholder, ctx, epilstmts);
+    ctx.addGeneratedStmtFromBB(placeholder);
+    return placeholder;
+}
+
+
+IRBB * ConstructLoop::constructVectEpilOp(
+    MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const
+{
+    GenerateMask gm;
+    if (!gm.tryGenerateMaskVectOp(ctx)) {
+        return nullptr;
+    }
+    IR * epilstmts = genVectEpilOpList(ctx);
+    ASSERT0(epilstmts);
+
+    //Insert a placeholder BB to hold new epilog ops.
+    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx);
+    ASSERT0(placeholder);
+
+    //Append stmts of epilstmts into placeholder.
+    transferIRToBBAndUpdateCtx(placeholder, ctx, epilstmts);
+    ctx.addGeneratedStmtFromBB(placeholder);
+    return placeholder;
+}
+
+
+IRBB * ConstructLoop::constructVectEpilOpOrLoop(
+    MOD VectCtx & ctx, MOD OptCtx & oc, OUT bool & need_recst_bblst) const
+{
+    IRBB * placeholder = constructVectEpilOp(ctx, oc, need_recst_bblst);
+    if (placeholder != nullptr) {
+        //Epilog-ops are successful.
+        return placeholder;
+    }
+    placeholder = constructVectEpilLoop(ctx, oc, need_recst_bblst);
+    ASSERTN(placeholder, ("epilog-loop is always successful."));
+    return placeholder;
+}
+
+
+//
+//START ReconstructLoopWithVariantTC
+//
+class ReconstructLoopWithVariantTC {
+public:
+    void constructVectLoopAndUpdateCFG(
+        MOD VectCtx & ctx, MOD OptCtx & oc);
+
+    //Return true if the reconstruction is successful.
+    //changed: set to true if CFG or IR changed.
+    bool reconstruct(
+        MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc);
+};
+
+
+bool ReconstructLoopWithVariantTC::reconstruct(
+    MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc)
+{
+    ASSERT0(!ctx.isTCImm());
+    VectCtx & pctx = const_cast<VectCtx&>(ctx);
+    ASSERT0_DUMMYUSE(pctx.getMainLoopResOpList().get_elem_count() > 0);
+    ASSERT0(ctx.getVect()->usePRSSADU() && ctx.getVect()->useMDSSADU());
+    constructVectLoopAndUpdateCFG(ctx, oc);
+    changed = true;
+    return true; //success
+}
+
+
+//The function generates main vector loop, and insert all these BBs into
+//CFG. Note the function will recompute DU chain after construct the
+//vector-main-loop.
+void ReconstructLoopWithVariantTC::constructVectLoopAndUpdateCFG(
+    MOD VectCtx & ctx, MOD OptCtx & oc)
 {
     //Do the collection of the relationship between Phi operand and its
     //corresponding predecessors BB ahead of time. Because the subsequent
     //simplification and BB list reconstruction might generate new BBs that
     //do not have any CFG information.
-    SortPredByBBId sortpred(m_cfg);
+    SortPredByBBId sortpred(ctx.getCFG());
     sortpred.collectPhiOpnd2PredBB();
-    IR * loop = genVectMainLoop(ctx);
-    ASSERT0(loop);
     bool need_recst_bblst = false;
-    IR * newloop = simplifyVectMainLoop(m_rg, ctx, loop, need_recst_bblst);
-    ASSERT0(newloop);
+    ASSERT0(ctx.getGeneratedStmtList().get_elem_count() == 0);
+    ASSERT0(ctx.getMainLoopResOpList().get_elem_count() != 0);
+    ASSERT0(ctx.getEpilLoopMaskOpList().get_elem_count() == 0);
+    ASSERT0(ctx.getEpilLoopResOpList().get_elem_count() == 0);
 
-    //Insert a placeholder BB to hold new loop.
-    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx, m_rg, oc);
-    ASSERT0(placeholder);
+    //Generate new vectorized loop.
+    ConstructLoop cl;
+    IRBB * mainloop_placeholder = cl.constructVectMainLoop(
+        ctx, oc, need_recst_bblst);
+    IRBB * epilloop_placeholder = cl.constructVectEpilOpOrLoop(
+        ctx, oc, need_recst_bblst);
+    ASSERT0(need_recst_bblst);
 
-    //Append stmts of newloop into placeholder.
-    addIRListToBBAndUpdateGeneratedStmtList(placeholder, ctx, newloop);
-    if (!need_recst_bblst) { return placeholder; }
+    //Collect original scalar-loop stmts to remove them after reconstruct BB.
+    DCECtx dcectx(ctx.getOptCtx(), *ctx.getVect()->getSBSMgr().getSegMgr(),
+                  ctx.getActMgr());
+
+    //Collect original loop stmt before BB reconstruction.
+    ConstIRList efflst;
+    collectStmtOutsideLoop(
+        ctx.getLI(), ctx.getCFG()->getBBList(), efflst, dcectx);
 
     //Some IR placement is not legal to satisfy the constrains to form a BB,
     //thus reconstruct BB list immediately.
-    bool change = m_rg->reconstructBBList(oc);
-    if (!change) { return placeholder; }
+    bool change = ctx.getRegion()->reconstructBBList(oc);
+    ASSERT0(change);
 
     //Currently, CFG has been invalided.
     //No need to update MDSSA.
     oc.setInvalidMDSSA();
     oc.setInvalidPRSSA();
 
-    //CFG need to rebuild if there are BBs splitted.
-    m_cfg->rebuild(oc, &sortpred);
-    m_rg->getPassMgr()->checkValidAndRecompute(
+    //CFG need to be rebuilt if there are BBs that have been splitted.
+    ctx.getCFG()->rebuild(oc, &sortpred);
+    ctx.getRegion()->getPassMgr()->checkValidAndRecompute(
         &oc, PASS_MDSSA_MGR, PASS_PRSSA_MGR, PASS_UNDEF);
-    ASSERT0(usePRSSADU() && useMDSSADU());
+    ASSERT0(ctx.getVect()->usePRSSADU() && ctx.getVect()->useMDSSADU());
+
+    if (epilloop_placeholder != nullptr) {
+        pickUpBBIllegalStmt(efflst);
+        removeDesignatedStmtsByDCE(efflst, ctx, dcectx);
+    }
+
+    //New loop has been generated, LoopInfo and IVR need to be recomputed.
+    oc.setInvalidPass(PASS_LOOP_INFO);
+    oc.setInvalidPass(PASS_IVR);
+
+    //Clean context info after CFG rebuilt.
+    ctx.cleanAfterLoopReconstruct();
+}
+//END ReconstructLoopWithVariantTC
+
+
+//
+//START ReconstructLoopWithImmTC
+//
+class ReconstructLoopWithImmTC {
+public:
+    bool addVectOpAndDepOpToBB(MOD VectCtx & ctx, MOD IRBB * bb) const;
+    bool addDUChainForVectOp(VectCtx const& ctx, MOD IRBB * root) const;
+    bool addReduceIVOpToBBAndRecordGeneratedOp(
+        MOD VectCtx & ctx, MOD IRBB * bb) const;
+
+    IRBB * constructVectMainBB(MOD VectCtx & ctx) const;
+
+    //Return true if the reconstruction is successful.
+    //changed: set to true if CFG or IR changed.
+    bool reconstruct(
+        MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc);
+};
+
+
+bool ReconstructLoopWithImmTC::addReduceIVOpToBBAndRecordGeneratedOp(
+    MOD VectCtx & ctx, MOD IRBB * bb) const
+{
+    IVBoundInfo const* bd = ctx.getIVBoundInfo();
+    ASSERT0(bd);
+    BIV const* biv = bd->getBIV();
+    ASSERT0(biv);
+    IR const* exp = biv->getInitExp();
+    ASSERT0(exp);
+    Type const* ty = exp->getType();
+    HOST_UINT step = ctx.getVect()->getMaxVectorElemNum(ty, ctx);
+
+    //Find the EXP that use the result of reduce-operation's result.
+    IR const* exp_use_redres = findRefToInitValOfIVInLoopHead(ctx);
+    ASSERT0(exp_use_redres);
+    IR * redstmt = ctx.getIVR()->tryBuildReduceStmtOfIV(
+        exp_use_redres, biv, step);
+    if (redstmt == nullptr) {
+        ctx.getActMgr()->dumpAct(exp_use_redres,
+            "the reduce-operation in placeholder BB is too "
+            "complicated to build, the situation prevents the "
+            "legal vector-operation generation");
+        return false;
+    }
+    //Compute MDRef for new dupop.
+    xoc::computeMustAndMayRefForDirectOpForTree(
+        redstmt, ctx.getRegion(), false);
+    bb->getIRList().append_tail_ex(redstmt);
+    ctx.addGeneratedStmt(redstmt);
+    return true;
+}
+
+
+bool ReconstructLoopWithImmTC::addDUChainForVectOp(
+    VectCtx const& ctx, MOD IRBB * root) const
+{
+    OptCtx * oc = ctx.getOptCtx();
+    ASSERT0(ctx.getVect()->usePRSSADU() && ctx.getVect()->useMDSSADU());
+    if (!oc->is_dom_valid()) {
+        //SSA's DfMgr need domset info.
+        ctx.getRegion()->getPassMgr()->checkValidAndRecompute(
+            oc, PASS_DOM, PASS_UNDEF);
+    }
+    //Even through all vectorized operations are placed in identical BB,
+    //the followed functions aslo may iterate DomTree for some reason.
+    //Therefore we recompute DomTree here. And in most testcases, it is
+    //not costly.
+    //Note if trip-count is immediate, there is only one BB generated. If
+    //trip-count is variable, a do-loop generated which will be simplified
+    //to multiple BBs after.
+    xcom::DomTree domtree;
+    ctx.getCFG()->genDomTree(domtree);
+    xcom::DefMiscBitSetMgr sbsmgr;
+    SSARegion ssarg(&sbsmgr, domtree, ctx.getRegion(), oc, ctx.getActMgr());
+    Vectorization const* vect = ctx.getVect();
+    if (!vect->constructSSARegion(ctx, root, ssarg)) { return false; }
+    if (!vect->addDUChainForPROp(ssarg, oc)) { return false; }
+    if (!vect->addDUChainForNonPROp(ssarg, oc)) { return false; }
+    return true;
+}
+
+
+IRBB * ReconstructLoopWithImmTC::constructVectMainBB(MOD VectCtx & ctx) const
+{
+    //Insert a placeholder BB to hold new loop.
+    IRBB * placeholder = insertPlaceHolderBeforeLoop(ctx);
+    if (!addVectOpAndDepOpToBB(ctx, placeholder)) { return nullptr; }
+
+    //Add DU chain to satisfy the verification in subsequent DCE and
+    //CFG optimizations.
+    //addDUChainForVectOp(ctx, m_cfg->getEntry(), &oc); //hack remove!
+    addDUChainForVectOp(ctx, placeholder); //hack open!!
+    ASSERT0(PRSSAMgr::verifyPRSSAInfo(ctx.getRegion(), *ctx.getOptCtx()));
+    ASSERT0(MDSSAMgr::verifyMDSSAInfo(ctx.getRegion(), *ctx.getOptCtx()));
     return placeholder;
 }
 
 
-bool Vectorization::reconstructLoopWithExactTC(
+bool ReconstructLoopWithImmTC::addVectOpAndDepOpToBB(
+    MOD VectCtx & ctx, MOD IRBB * bb) const
+{
+    ASSERT0(bb);
+    ConstructLoop cl;
+    if (!cl.genDepOpOutsideLoop(ctx)) { return false; }
+    addPrerequisiteOpToBBAndRecordGeneratedOp(ctx, bb);
+    addVectOpToBBAndRecordGeneratedOp(ctx, bb);
+    return addReduceIVOpToBBAndRecordGeneratedOp(ctx, bb);
+}
+
+
+bool ReconstructLoopWithImmTC::reconstruct(
     MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc)
 {
     ASSERT0(ctx.isTCImm());
     VectCtx & pctx = const_cast<VectCtx&>(ctx);
-    ASSERT0_DUMMYUSE(pctx.getResVOpList().get_elem_count() > 0);
-    ASSERT0(usePRSSADU() && useMDSSADU());
-    constructVectMainBB(ctx, oc);
-    removeOrgScalarLoop(ctx, oc);
+    ASSERT0_DUMMYUSE(pctx.getMainLoopResOpList().get_elem_count() > 0);
+    ASSERT0(ctx.getVect()->usePRSSADU() && ctx.getVect()->useMDSSADU());
+    constructVectMainBB(ctx);
+    removeOrgScalarLoop(ctx);
     changed = true;
-
-    //Remove the empty loop structures after DCE finished.
-    //NOTE: SSA info may unavaliable.
-    postProcessAfterReconstructLoop(ctx, oc);
-    ASSERT0(m_dumgr->verifyMDRef());
-    ASSERT0(PRSSAMgr::verifyPRSSAInfo(m_rg, oc));
-    ASSERT0(MDSSAMgr::verifyMDSSAInfo(m_rg, oc));
-    return true; //success
+    return true; //always be successful.
 }
-
-
-bool Vectorization::reconstructLoopWithVariantTC(
-    MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc)
-{
-    ASSERT0(!ctx.isTCImm());
-    VectCtx & pctx = const_cast<VectCtx&>(ctx);
-    ASSERT0_DUMMYUSE(pctx.getResVOpList().get_elem_count() > 0);
-    ASSERT0(usePRSSADU() && useMDSSADU());
-    constructVectMainLoopAndUpdateCFG(ctx, oc);
-
-    //Remove the empty loop structure after DCE.
-    bool removed = postProcessAfterReconstructLoop(ctx, oc);
-    ASSERT0(m_dumgr->verifyMDRef());
-    ASSERT0(PRSSAMgr::verifyPRSSAInfo(m_rg, oc));
-    ASSERT0(MDSSAMgr::verifyMDSSAInfo(m_rg, oc));
-    changed |= removed;
-    return true; //success
-}
+//END ReconstructLoopWithImmTC
 
 
 bool Vectorization::reconstructLoop(
     MOD VectCtx & ctx, OUT bool & changed, MOD OptCtx & oc)
 {
     if (ctx.isTCImm()) {
-        return reconstructLoopWithExactTC(ctx, changed, oc);
-    }
-    if (is_aggressive()) {
-        return reconstructLoopWithVariantTC(ctx, changed, oc);
-    }
-    return false;
+        ReconstructLoopWithImmTC recon;
+        recon.reconstruct(ctx, changed, oc);
+    } else if (is_aggressive()) {
+        ReconstructLoopWithVariantTC recon;
+        recon.reconstruct(ctx, changed, oc);
+    } else { return false; }
+
+    //Remove the empty loop structures after DCE finished.
+    //NOTE: SSA info may unavaliable.
+    bool removed = postProcessAfterReconstructLoop(ctx, oc);
+    ASSERT0(m_dumgr->verifyMDRef());
+    ASSERT0(PRSSAMgr::verifyPRSSAInfo(m_rg, oc));
+    ASSERT0(MDSSAMgr::verifyMDSSAInfo(m_rg, oc));
+    changed |= removed;
+    return true; //always be successful
 }
 
 
@@ -2791,9 +3259,9 @@ bool Vectorization::tryVectorizeLoop(LI<IRBB> * li, MOD OptCtx & oc)
     dumpIVBound(bi, this, li);
     if (bi.isTCImm() && bi.getTCImm() == 0) {
         //TODO: Remove the loop which trip-count is zero.
-        ASSERT0(0);
+        ASSERTN(0, ("NEED TO BE IMPLEMENTED"));
     }
-    VectCtx vectctx(li, &bi, oc, this, m_gvn);
+    VectCtx vectctx(li, &bi, oc, this, m_gvn, (ActMgr*)&getActMgr());
     LICMAnaCtx anactx(m_rg, li);
     if (is_aggressive()) {
         //Use Loop Invariant info to determine whether a variable can be
@@ -2806,11 +3274,17 @@ bool Vectorization::tryVectorizeLoop(LI<IRBB> * li, MOD OptCtx & oc)
         return false;
     }
     if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpVectorization()) {
-        dump(vectctx);
+        vectctx.dump();
     }
     bool changed = false;
-    if (reconstructLoop(vectctx, changed, oc)) { return changed; }
-    return false;
+    bool succ = reconstructLoop(vectctx, changed, oc);
+    if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpVectorization()) {
+        //After loop reconstruction, LoopInfo, IV, and misc vector-candidate-
+        //op information collected have become invalided. Here just dump
+        //informations that generated by reconstruction.
+        vectctx.dump();
+    }
+    return succ ? changed : false;
 }
 
 
@@ -2835,19 +3309,6 @@ bool Vectorization::doLoopTree(LI<IRBB> * li, OptCtx & oc)
         }
     }
     return changed;
-}
-
-
-bool Vectorization::dump(VectCtx const& ctx) const
-{
-    if (!getRegion()->isLogMgrInit()) { return false; }
-    note(getRegion(), "\n==---- DUMP %s '%s' ----==",
-         getPassName(), m_rg->getRegionName());
-    m_rg->getLogMgr()->incIndent(2);
-    ctx.dump();
-    bool res = Pass::dump();
-    m_rg->getLogMgr()->decIndent(2);
-    return res;
 }
 
 
@@ -2883,7 +3344,6 @@ bool Vectorization::initDepPass(MOD OptCtx & oc)
         //Vectorization prefer using SSA instead of classic DU.
         return false;
     }
-    START_TIMER(t, getPassName());
     m_rg->getPassMgr()->checkValidAndRecompute(
         &oc, PASS_DOM, PASS_LOOP_INFO, PASS_IVR, PASS_UNDEF);
     m_ivr = (IVR*)m_rg->getPassMgr()->queryPass(PASS_IVR);
@@ -2932,15 +3392,17 @@ bool Vectorization::perform(OptCtx & oc)
         lchanged = doLoopTree(m_cfg->getLoopInfo(), oc);
         changed |= lchanged;
     } while (lchanged);
-    if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpVectorization()) {
-        dump();
-    }
-    cleanAfterPass();
     if (!changed) {
+        cleanAfterPass();
         m_rg->getLogMgr()->cleanBuffer();
         END_TIMER(t, getPassName());
         return false;
     }
+    if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpVectorization()) {
+        dump();
+    }
+    cleanAfterPass();
+
     //The pass does not devastate IVR information. However, new IV might be
     //inserted.
     //DU chain and DU reference should be maintained.

@@ -37,10 +37,52 @@ IRMgrExt::IRMgrExt(Region * rg) : IRMgr(rg)
 }
 
 
+IR * IRMgrExt::buildMaskStoreStmtViaIsomoIR(
+    IR const* reflhs, IR * op, IR * mask, Type const* ty)
+{
+    ASSERT0(reflhs->is_exp() || reflhs->is_stmt());
+    IR * isomo_stmt = getRegion()->dupIsomoStmtExceptRHS(reflhs);
+    ASSERT0(isomo_stmt->is_stmt());
+    IR * masked_sel = buildMaskSelectToRes(op, mask, isomo_stmt->getType());
+    ASSERT0(isomo_stmt->hasRHS());
+    isomo_stmt->setRHS(masked_sel);
+    return isomo_stmt;
+}
+
+
+IR * IRMgrExt::buildMaskSelectToRes(IR * op, IR * mask, Type const* ty)
+{
+    ASSERT0(op && mask && ty);
+    ASSERT0(mask->is_exp() && op->is_exp());
+    IR * ir = allocIR(IR_MASK_SELECT_TO_RES);
+    MASKSELECTTORES_op(ir) = op;
+    MASKSELECTTORES_mask(ir) = mask;
+    IR_parent(op) = ir;
+    IR_parent(mask) = ir;
+    IR_dt(ir) = ty;
+    return ir;
+}
+
+
+IR * IRMgrExt::buildMaskOp(IR * op, IR * mask, Type const* ty)
+{
+    ASSERT0(op && mask && ty);
+    ASSERT0(mask->is_exp() && op->is_exp());
+    IR * ir = allocIR(IR_MASK_OP);
+    MASKOP_op(ir) = op;
+    MASKOP_mask(ir) = mask;
+    IR_parent(op) = ir;
+    IR_parent(mask) = ir;
+    IR_dt(ir) = ty;
+    return ir;
+}
+
+
 IR * IRMgrExt::buildVIStore(
     IR * base, TMWORD ofst, IR * rhs, IR * dummyuse, Type const* ty)
 {
     ASSERT0(ty && base);
+    ASSERT0(base->is_exp());
     IR * ir = allocIR(IR_VIST);
     VIST_base(ir) = base;
     VIST_ofst(ir) = ofst;

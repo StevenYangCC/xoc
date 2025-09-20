@@ -158,6 +158,9 @@ protected:
         IRBB * bb, IR * last_xr, bool always_true, bool always_false,
         BBListIter const& ct, OUT CfgOptCtx & ctx, MOD List<IRBB*> & succs);
 
+    bool tryBuildEHEdgeByEHAttachInfo(IR const* ir);
+    bool tryBuildEHEdgeByEHLabelInfo(IRBB const* bb);
+
     bool useMDSSADU() const;
     bool usePRSSADU() const;
 public:
@@ -223,7 +226,6 @@ public:
 
     //Record the Exit BB here.
     virtual void computeExitList();
-    virtual void cf_opt();
     void cloneLab2BB(Lab2BB const& src);
     void clone(IRCFG const& src, bool clone_edge_info, bool clone_vex_info);
     void computeDomAndIdom(MOD OptCtx & oc, BitSet const* uni = nullptr);
@@ -247,11 +249,13 @@ public:
     //The function insert a tampolining BB bewteen bb and its next BB.
     IRBB * changeFallthroughBBToJumpBB(IRBB * bb, OptCtx * oc);
 
+    virtual bool doIFOpt(IRBB * bb);
+    virtual void doCFSOpt();
     void dumpRPO() const;
     void dumpVCG(CHAR const* name = nullptr, UINT flag = DUMP_COMBINE) const;
 
     //Dump graph in DOT file with default file name and dump-options.
-    void dumpDOT() const { dumpDOT((CHAR const*)nullptr, DUMP_COMBINE); }
+    void dumpDOT() const;
 
     //Dump graph in DOT file with specific file name.
     void dumpDOT(CHAR const* name, UINT flag = DUMP_COMBINE,
@@ -299,7 +303,6 @@ public:
 
     //Allocate and initialize control flow graph.
     void initCFG(OptCtx & oc);
-    virtual bool if_opt(IRBB * bb);
     virtual bool isRegionEntry(IRBB * bb) const { return BB_is_entry(bb); }
     virtual bool isRegionExit(IRBB * bb) const { return BB_is_exit(bb); }
 
@@ -355,6 +358,8 @@ public:
     { return const_cast<IRCFG*>(this)->getBBList()->get_elem_count(); }
     BBList * getBBList() const { return (BBList*)m_bb_list; }
     Lab2BB * getLabel2BBMap() { return &m_lab2bb; }
+    IRBB * getBBByLabel(LabelInfo const* li)
+    { ASSERT0(li); return m_lab2bb.get(li); }
     IRBB * getBB(UINT id) const { return getRegion()->getBB(id); }
     virtual bool goto_opt(IRBB * bb);
     virtual CHAR const* getPassName() const { return "CFG"; }

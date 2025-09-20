@@ -158,8 +158,9 @@ IRMgr::~IRMgr()
 }
 
 
-bool IRMgr::isIRListIsomorphic(IR const* ir1lst, IR const* ir2lst,
-                               bool is_cmp_kid, IsomoFlag const& flag) const
+bool IRMgr::isIRListIsomorphic(
+    IR const* ir1lst, IR const* ir2lst, bool is_cmp_kid,
+    IsomoFlag const& flag) const
 {
     IR const* ir1 = ir1lst;
     IR const* ir2 = ir2lst;
@@ -184,8 +185,8 @@ bool IRMgr::isIRListIsomorphic(IR const* ir1lst, IR const* ir2lst,
 //      or stmt.
 //      e.g: If ISOMO_CK_CODE is set, the comparison of IST and ILD will
 //      return false.
-bool IRMgr::isIRIsomorphic(IR const* ir, IR const* src,
-                           bool is_cmp_kid, IsomoFlag const& flag) const
+bool IRMgr::isIRIsomorphic(
+    IR const* ir, IR const* src, bool is_cmp_kid, IsomoFlag const& flag) const
 {
     if (ir == src) { return true; }
     ASSERT0(src);
@@ -540,9 +541,6 @@ IR * IRMgr::allocIR(IR_CODE irc, bool lookup)
         #endif
     }
     IR_code(ir) = irc;
-if(ir->id()==467){
-int a=0;;//hack
-}
     return ir;
 }
 
@@ -707,8 +705,8 @@ IR * IRMgr::buildLdaString(CHAR const* varname, CHAR const* string)
 IR * IRMgr::buildLdaString(CHAR const* varname, Sym const* string)
 {
     ASSERT0(string);
-    Var * v = m_vm->registerStringVar(varname, string, MEMORY_ALIGNMENT,
-                                      SS_UNDEF);
+    Var * v = m_vm->registerStringVar(
+        varname, string, MEMORY_ALIGNMENT, SS_UNDEF);
     return buildLda(v);
 }
 
@@ -746,8 +744,8 @@ IR * IRMgr::buildString(Sym const* strtab)
 //The result depends on the predicator's value.
 //e.g: x = a > b ? 10 : 100
 //Note predicator may not be judgement expression.
-IR * IRMgr::buildSelect(IR * pred, IR * true_exp, IR * false_exp,
-                        Type const* type)
+IR * IRMgr::buildSelect(
+    IR * pred, IR * true_exp, IR * false_exp, Type const* type)
 {
     ASSERT0(type);
     ASSERT0(pred && pred->is_single() && true_exp && false_exp);
@@ -843,13 +841,8 @@ IR * IRMgr::buildPhi(PRNO prno, Type const* type, IR * opnd_list)
 }
 
 
-//Build IR_CALL operation.
-//res_list: reture value list.
-//result_prno: indicate the result PR which hold the return value.
-//    0 means the call does not have a return value.
-//type: result PR data type.
-IR * IRMgr::buildCall(Var * callee, IR * arg_list, UINT result_prno,
-                      Type const* type)
+IR * IRMgr::buildCall(
+    Var * callee, IR * arg_list, UINT result_prno, Type const* type)
 {
     ASSERT0(type);
     ASSERT0(callee);
@@ -876,14 +869,8 @@ IR * IRMgr::buildInitPlaceHolder(IR * exp)
 }
 
 
-//Build IR_ICALL operation.
-//res_list: reture value list.
-//result_prno: indicate the result PR which hold the return value.
-//    0 means the call does not have a return value.
-//type: result PR data type.
-//    0 means the call does not have a return value.
-IR * IRMgr::buildICall(IR * callee, IR * arg_list, UINT result_prno,
-                       Type const* type)
+IR * IRMgr::buildICall(
+    IR * callee, IR * arg_list, UINT result_prno, Type const* type)
 {
     ASSERT0(type);
     ASSERT0(callee);
@@ -903,7 +890,6 @@ IR * IRMgr::buildICall(IR * callee, IR * arg_list, UINT result_prno,
 }
 
 
-//Build IR_REGION operation.
 IR * IRMgr::buildRegion(Region * rg)
 {
     ASSERT0(rg && !rg->is_undef());
@@ -1056,8 +1042,8 @@ IR * IRMgr::buildGetElem(Type const* type, IR * base, IR * offset)
 //value: value that need to be set.
 //offset: byte offset to the start of result PR.
 //rhs: value expected to store.
-IR * IRMgr::buildSetElem(PRNO prno, Type const* type, IR * base, IR * val,
-                         IR * offset)
+IR * IRMgr::buildSetElem(
+    PRNO prno, Type const* type, IR * base, IR * val, IR * offset)
 {
     ASSERT0(type && offset && val && prno != PRNO_UNDEF && val->is_exp());
     IR * ir = allocIR(IR_SETELEM);
@@ -1230,9 +1216,9 @@ IR * IRMgr::buildIStore(IR * base, IR * rhs, Type const* type)
 //        elem_num points to an array with 2 value, [12, 24].
 //        the 1th dimension has 12 elements, and the 2th dimension has 24
 //        elements, which element type is D_I32.
-IR * IRMgr::buildArray(IR * base, IR * sublist, Type const* type,
-                       Type const* elemtype, UINT dims,
-                       TMWORD const* elem_num_buf)
+IR * IRMgr::buildArray(
+    IR * base, IR * sublist, Type const* type, Type const* elemtype, UINT dims,
+    TMWORD const* elem_num_buf)
 {
     ASSERT0(type);
     ASSERT0(base && sublist && elemtype);
@@ -1297,9 +1283,9 @@ IR * IRMgr::buildArray(IR * base, IR * sublist, Type const* type,
 //        elements, which element type is D_I32.
 //    Note the parameter may be nullptr.
 //rhs: value expected to store.
-IR * IRMgr::buildStoreArray(IR * base, IR * sublist, Type const* type,
-                            Type const* elemtype, UINT dims,
-                            TMWORD const* elem_num_buf, IR * rhs)
+IR * IRMgr::buildStoreArray(
+    IR * base, IR * sublist, Type const* type, Type const* elemtype, UINT dims,
+    TMWORD const* elem_num_buf, IR * rhs)
 {
     ASSERT0(base && sublist && type);
     ASSERT0(base->is_exp() && base->isPtr());
@@ -1376,6 +1362,13 @@ IR * IRMgr::buildBreak()
 
 IR * IRMgr::buildDummyUse(IR * use_list)
 {
+    return buildDummyUse(use_list, m_tm->getAny());
+
+}
+
+
+IR * IRMgr::buildDummyUse(IR * use_list, Type const* ty)
+{
     //NOTE:use_list may be NULL.
     IR * ir = allocIR(IR_DUMMYUSE);
     DUMMYUSE_use_list(ir) = use_list;
@@ -1384,7 +1377,8 @@ IR * IRMgr::buildDummyUse(IR * use_list)
             IR_parent(u) = ir;
         }
     }
-    IR_dt(ir) = m_tm->getAny();
+    ASSERT0(ty);
+    IR_dt(ir) = ty;
     return ir;
 }
 
@@ -1412,10 +1406,7 @@ IR * IRMgr::buildCase(IR * casev_exp, LabelInfo const* jump_lab)
 IR * IRMgr::buildDoLoop(IR * iv, IR * init, IR * det, IR * step, IR * loop_body)
 {
     ASSERT0(det &&
-            (det->is_lt() ||
-             det->is_le() ||
-             det->is_gt() ||
-             det->is_ge()));
+            (det->is_lt() || det->is_le() || det->is_gt() || det->is_ge()));
     ASSERT0(init && step && init->is_exp() && step->is_exp());
     ASSERT0(iv->is_id() || iv->is_pr());
     //ASSERT0(isReduction(step));
@@ -1532,8 +1523,8 @@ IR * IRMgr::buildIf(IR * det, IR * true_body, IR * false_body)
 //default_lab: label indicates the default choice, the label is optional.
 //
 //NOTE: Do not set parent for stmt in 'body'.
-IR * IRMgr::buildSwitch(IR * vexp, IR * case_list, IR * body,
-                        LabelInfo const* default_lab)
+IR * IRMgr::buildSwitch(
+    IR * vexp, IR * case_list, IR * body, LabelInfo const* default_lab)
 {
     ASSERT0(vexp && vexp->is_exp());
     IR * ir = allocIR(IR_SWITCH);
@@ -1881,8 +1872,8 @@ IR * IRMgr::buildUnaryOp(IR_CODE irc, Type const* type, IN IR * opnd)
 
 
 //Build binary operation without considering pointer arithmetic.
-IR * IRMgr::buildBinaryOpSimp(IR_CODE irc, Type const* type,
-                              IR * lchild, IR * rchild)
+IR * IRMgr::buildBinaryOpSimp(
+    IR_CODE irc, Type const* type, IR * lchild, IR * rchild)
 {
     ASSERT0(type);
     if (lchild->is_const() && !rchild->is_const() &&
@@ -1918,8 +1909,8 @@ IR * IRMgr::buildBinaryOp(IR_CODE irc, DATA_TYPE dt, IR * lchild, IR * rchild)
 //Build binary operation.
 //If rchild/lchild is pointer, the function will attemp to generate pointer
 //arithmetic operation instead of normal binary operation.
-IR * IRMgr::buildBinaryOp(IR_CODE irc, Type const* type, IR * lchild,
-                          IR * rchild)
+IR * IRMgr::buildBinaryOp(
+    IR_CODE irc, Type const* type, IR * lchild, IR * rchild)
 {
     ASSERT0(type);
     ASSERT0(checkLogicalOp(irc, type, m_tm));
@@ -1943,8 +1934,8 @@ IR * IRMgr::buildBinaryOp(IR_CODE irc, Type const* type, IR * lchild,
 }
 
 
-IR * IRMgr::buildTernaryOp(IR_CODE irc, Type const* type, IN IR * opnd0,
-                           IN IR * opnd1, IN IR * opnd2)
+IR * IRMgr::buildTernaryOp(
+    IR_CODE irc, Type const* type, IN IR * opnd0, IN IR * opnd1, IN IR * opnd2)
 {
     ASSERT0(type);
     ASSERT0(isTernaryOp(irc));

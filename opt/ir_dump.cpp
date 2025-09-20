@@ -1073,69 +1073,136 @@ void dumpConst(IR const* ir, Region const* rg, IRDumpCtx<> & ctx)
 {
     bool dump_addr = ctx.dumpflag.have(IR_DUMP_ADDR);
     note(rg, "");
-    dumpConstContent(ir, rg);
+    dumpConstContent(ir, rg, &ctx);
     DUMPADDR(ir);
     ASSERT0(ctx.attr);
     prt(rg, "%s", ctx.attr);
 }
 
 
-void dumpConstContent(IR const* ir, Region const* rg)
+static void dumpConstIntContent(IR const* ir, Region const* rg)
 {
-    xcom::FixedStrBuf<64> buf;
     TypeMgr const* xtm = rg->getTypeMgr();
     Type const* d = ir->getType();
+    xoc::dumpHostInteger(CONST_int_val(ir), d, rg, xtm, ir->is_sint());
+}
+
+
+static void dumpConstFPContent(IR const* ir, Region const* rg)
+{
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    xcom::FixedStrBuf<64> buf;
+    xcom::FixedStrBuf<64> fpformat;
+    fpformat.sprint("fpconst:%%s %%.%df", CONST_fp_mant(ir));
+    prt(rg, fpformat.getBuf(), xtm->dump_type(d, buf), CONST_fp_val(ir));
+}
+
+
+static void dumpConstBoolContent(IR const* ir, Region const* rg)
+{
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    xcom::FixedStrBuf<64> buf;
+    prt(rg, "boolconst:%s %d", xtm->dump_type(d, buf), CONST_int_val(ir));
+}
+
+
+static CHAR const* makeFormatOfStringConst(
+    bool brief_mode, OUT xcom::FixedStrBuf<64> & format, IRDumpCtx<> const* ctx)
+{
+    if (ctx != nullptr && ctx->dumpflag.have(IR_DUMP_ESCAPE_DOUBLE_QUOTE)) {
+        if (brief_mode) {
+            format.strcat("strconst:%%s \\\"%%s...\\\"");
+        } else {
+            format.strcat("strconst:%%s \\\"%%s\\\"");
+        }
+        return format.getBuf();
+    }
+    if (brief_mode) {
+        format.strcat("strconst:%%s \"%%s...\"");
+    } else {
+        format.strcat("strconst:%%s \"%%s\"");
+    }
+    return format.getBuf();
+}
+
+
+static void dumpConstStrContent(
+    IR const* ir, Region const* rg, IRDumpCtx<> const* ctx)
+{
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    UINT const tbuflen = 40;
+    xcom::FixedStrBuf<64> buf;
+    xcom::FixedStrBuf<tbuflen> tt;
+    tt.strcat(40, "%s", SYM_name(CONST_str_val(ir)));
+
+    //Remove \n to show string in one line.
+    CHAR * tbufptr = tt.getBuf();
+    ASSERT0(tbufptr);
+    for (UINT i = 0; i < tt.getBufLen() && tbufptr[i] != 0; i++) {
+        if (tbufptr[i] == '\n') { tbufptr[i] = ' '; }
+    }
+    bool brief_mode = CONST_str_val(ir)->getLen() >= tbuflen ? true : false;
+    xcom::FixedStrBuf<64> format;
+    CHAR const* formatstr = makeFormatOfStringConst(brief_mode, format, ctx);
+    ASSERT0(formatstr);
+    prt(rg, formatstr, xtm->dump_type(d, buf), tbufptr);
+}
+
+
+static void dumpConstMCContent(IR const* ir, Region const* rg)
+{
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    xcom::FixedStrBuf<64> buf;
+    //Imm may be MC type.
+    CHAR const* intfmt = getHostUIntFormat(false);
+    CHAR const* hexintfmt = getHostUIntFormat(true);
+    xcom::FixedStrBuf<16> fmt;
+    fmt.strcat("intconst:%%s %s|0x%s", intfmt, hexintfmt);
+    prt(rg, fmt.getBuf(), xtm->dump_type(d, buf),
+        CONST_int_val(ir), CONST_int_val(ir));
+}
+
+
+static void dumpConstHostIntContent(IR const* ir, Region const* rg)
+{
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    xcom::FixedStrBuf<64> buf;
+    prt(rg, "intconst:%s %d|0x%x", xtm->dump_type(d, buf),
+        CONST_int_val(ir),  CONST_int_val(ir));
+}
+
+
+void dumpConstContent(IR const* ir, Region const* rg, IRDumpCtx<> const* ctx)
+{
     if (ir->is_sint() || ir->is_uint()) {
-        xoc::dumpHostInteger(CONST_int_val(ir), d, rg, xtm, ir->is_sint());
+        dumpConstIntContent(ir, rg);
         return;
     }
     if (ir->is_fp()) {
-        xcom::FixedStrBuf<64> fpformat;
-        fpformat.sprint("fpconst:%%s %%.%df", CONST_fp_mant(ir));
-        prt(rg, fpformat.getBuf(), xtm->dump_type(d, buf), CONST_fp_val(ir));
+        dumpConstFPContent(ir, rg);
         return;
     }
     if (ir->is_bool()) {
-        prt(rg, "boolconst:%s %d", xtm->dump_type(d, buf), CONST_int_val(ir));
+        dumpConstBoolContent(ir, rg);
         return;
     }
     if (ir->is_str()) {
-        UINT const tbuflen = 40;
-        xcom::FixedStrBuf<tbuflen> tt;
-        tt.strcat(40, "%s", SYM_name(CONST_str_val(ir)));
-
-        //Remove \n to show string in one line.
-        CHAR * tbufptr = tt.getBuf();
-        ASSERT0(tbufptr);
-        for (UINT i = 0; i < tt.getBufLen() && tbufptr[i] != 0; i++) {
-            if (tbufptr[i] == '\n') { tbufptr[i] = ' '; }
-        }
-
-        if (CONST_str_val(ir)->getLen() < tbuflen) {
-            prt(rg, "strconst:%s \\\"%s\\\"",
-                xtm->dump_type(d, buf), tt.getBufLen());
-        } else {
-            prt(rg, "strconst:%s \\\"%s...\\\"",
-                xtm->dump_type(d, buf), tt.getBufLen());
-        }
+        dumpConstStrContent(ir, rg, ctx);
         return;
     }
     if (ir->is_mc()) {
-        //Imm may be MC type.
-        CHAR const* intfmt = getHostUIntFormat(false);
-        CHAR const* hexintfmt = getHostUIntFormat(true);
-        xcom::FixedStrBuf<16> fmt;
-        fmt.strcat("intconst:%%s %s|0x%s", intfmt, hexintfmt);
-        prt(rg, fmt.getBuf(), xtm->dump_type(d, buf),
-            CONST_int_val(ir), CONST_int_val(ir));
+        dumpConstMCContent(ir, rg);
         return;
     }
-
     //Dump as HOST_INT type even if it is unrecognized,
     //leave the sanity check to verify().
     //Note the dump format may extend or truncate the real value.
-    prt(rg, "intconst:%s %d|0x%x", xtm->dump_type(d, buf),
-        CONST_int_val(ir),  CONST_int_val(ir));
+    dumpConstHostIntContent(ir, rg);
 }
 
 
@@ -1211,20 +1278,20 @@ void dumpIR(IR const* ir, Region const* rg, MOD IRDumpCtx<> & ctx)
 
 
 CHAR const* dumpIRToBuf(IR const* ir, Region const* rg, OUT StrBuf & outbuf,
-                        DumpFlag dumpflag)
+                        DumpFlag dumpflag, UINT indent)
 {
     ASSERT0(rg && ir);
     class Dump : public xoc::DumpToBuf {
     public:
         IR const* ir;
         DumpFlag const& dumpflag;
-        Dump(Region const* rg, DumpFlag const& df, xcom::StrBuf & buf) :
-            DumpToBuf(rg, buf), dumpflag(df) {}
+        Dump(Region const* rg, DumpFlag const& df, xcom::StrBuf & buf,
+             UINT indent) : DumpToBuf(rg, buf, indent), dumpflag(df) {}
         virtual void dumpUserInfo() const override
         { xoc::dumpIR(ir, getRegion(), nullptr, dumpflag); }
     };
     if (!rg->isLogMgrInit()) { return nullptr; }
-    Dump d(rg, dumpflag, outbuf);
+    Dump d(rg, dumpflag, outbuf, indent);
     d.ir = ir;
     d.dump();
     return outbuf.getBuf();
@@ -1340,6 +1407,25 @@ void dumpCFIDefCfaOffst(IR const* ir, Region const* rg, IRDumpCtx<> & ctx)
         lm->decIndent(ctx.dn);
     }
 }
+
+
+//
+//START DumpIRTree
+//
+CHAR const* DumpIRTree::dump(IR const* ir, Region const* rg, UINT indent)
+{
+    m_buf.clean();
+    return xoc::dumpIRToBuf(ir, rg, m_buf, DumpFlag(IR_DUMP_COMBINE), indent);
+}
+
+
+CHAR const* DumpIRTree::dump(IR const* ir, Region const* rg)
+{
+    m_buf.clean();
+    return xoc::dumpIRToBuf(ir, rg, m_buf, DumpFlag(IR_DUMP_COMBINE));
+}
+//END DumpIRTree
+
 
 //
 //START DumpToBuf

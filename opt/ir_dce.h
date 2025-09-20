@@ -296,9 +296,15 @@ public:
     //efflist: record the effect IR stmts that provided by user.
     //remove_branch_stmt: return true if the function eliminated branch-stmt.
     //Return true if there are IR stmts removed.
+    //Note:DefUse chains have to be available before calling the function.
+    //The function will maintain DefUse chain.
     bool performByEffectIRList(
-        ConstIRList & efflist, OUT DCECtx & dcectx,
+        MOD ConstIRList & efflist, OUT DCECtx & dcectx,
         OUT bool remove_branch_stmt);
+
+    //This is normal pass entry.
+    //Note:DefUse chains have to be available before calling the function.
+    //The function will maintain DefUse chain.
     virtual bool perform(OptCtx & oc);
 
     //The function is an interface to eliminate ineffect IR that are not

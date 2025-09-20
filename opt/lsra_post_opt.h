@@ -156,6 +156,496 @@ public:
 //End SpillReloadEliminateMgr
 
 
+typedef xcom::List<Reg> RegList;
+typedef xcom::TTab<Var const*> VarPromoteTab;
+
+//
+//START IRGroup
+//
+#define IRGROUP_weight(g) (g->weight)
+#define IRGROUP_reg(g) (g->reg)
+#define IRGROUP_tmpvar(g) (g->tmp_var)
+#define IRGROUP_orgvar(g) (g->org_var)
+class IRGroup {
+    COPY_CONSTRUCTOR(IRGroup);
+public:
+    //Record the weight for the spill and reload IRs in the current group.
+    UINT weight;
+
+    //Record the available register can be used to do the promotion.
+    Reg reg;
+
+    //Record the original var used for the spill and reload IR.
+    Var const* org_var;
+
+    //Record the temp var which used for computing the lifetime of current
+    //group.
+    Var const* tmp_var;
+
+    //The set of reload and spill IRs.
+    IRVec irvec;
+public:
+    IRGroup(): weight(0), reg(REG_UNDEF), org_var(nullptr), tmp_var(REG_UNDEF)
+    {}
+
+    //Add an IR into the current group.
+    void addIR(IR const* ir)
+    {
+        ASSERT0(ir);
+        ASSERT0(ir->is_stpr() || ir->is_st());
+        irvec.append(const_cast<IR*>(ir));
+    }
+
+    void dump(Region * rg) const;
+
+    //Get the number of IR for the current group.
+    UINT getIRCnt() const { return irvec.get_elem_count(); }
+
+    IRVec const* getIRVec() const
+    { return &irvec; }
+
+    //Modify the var of IR in the group by the input var 'v'.
+    void modifyIRVar(Var const* v);
+
+    //Renanem the var of IR to the temp_var.
+    void renameIRVar();
+
+    //recover the original var in the IRs of current group.
+    void revertIRVar();
+};
+//END IRGroup
+
+typedef xcom::Vector<IRGroup*> IRGroups;
+
+//
+//START VarGroups
+//
+#define VARGROUPS_has_all(v) (v->m_has_all)
+class VarGroups {
+    COPY_CONSTRUCTOR(VarGroups);
+public:
+    //Used to indicate the current groups contain all the spill and reload
+    //IRs for the current spill var.
+    bool m_has_all;
+
+    //The groups for the spill var.
+    IRGroups * m_groups;
+public:
+    VarGroups() : m_has_all(true)
+    {
+        m_groups = new IRGroups();
+    }
+    ~VarGroups()
+    {
+        if (m_groups != nullptr) { delete m_groups; }
+    }
+
+    //Add a new group to the spill var.
+    void addGroup(UINT gid, IRGroup * irgp)
+    {
+        ASSERT0(irgp);
+        ASSERT0(m_groups);
+        m_groups->set(gid, irgp);
+    }
+
+    //Add the input ir to the specified group indicated by the group id.
+    void addIRToGroup(UINT gid, IR const* ir)
+    {
+        ASSERT0(ir);
+        ASSERT0(m_groups);
+        ASSERT0(m_groups->get(gid));
+        m_groups->get(gid)->addIR(ir);
+    }
+
+    void dump(Region * rg) const;
+
+    //Get the group number of the spill var.
+    UINT getGroupNum() const
+    {
+        if (m_groups == nullptr) { return 0; }
+        return m_groups->get_elem_count();
+    }
+
+    //Return the goups of the spill var.
+    IRGroup * getIRGroup(UINT idx) const
+    {
+        if (m_groups == nullptr) { return nullptr; }
+        return m_groups->get(idx);
+    }
+
+    //Check the groups of this spill var is full group or not. Return true
+    //if it has all the spill and reload IRs of the spill var, and also has
+    //only one group.
+    bool isFullGroup() const
+    { return m_has_all && m_groups->get_elem_count() == 1; }
+};
+//End VarGroups
+
+typedef xcom::TMap<Var const*, VarGroups*> Var2Groups;
+typedef xcom::TMapIter<Var const*, VarGroups*> Var2GroupsIter;
+typedef xcom::Vector<IRGroup*> IRGroupVec;
+
+//
+//START SpillReloadPromote
+//
+//This class shall promote the spill/reload to the move operation between
+//two registers, which helps to enhance the performance of register allocation.
+//The basic idea of this algorithm is listed below:
+//  1. Group the spill IR and reload IR by a spill var.
+//  2. Construct the var lifetime of each group.
+//  3. Find an available register to which can accomodate the live range of
+//     the spill var for each group by the overview of phisical register
+//     lifetime manager. Becasue all the registers has been assigned to the
+//     prnos during the previous register allocation, we try to find a hole in
+//     the register lifetime to accomodate the liftime of var for each group.
+//     e.g1:REG_1 cannot accomodate the lifetime of VAR_1, but the range of
+//          VAR_1<30-31> fit the hole of REG_2 well, so we can use the REG_2
+//          to replace the spill var VAR_1.
+//     LT:VAR_1,range:<30-31>
+//      |                             --
+//      |                             du
+
+//     LT:REG_1,range:<22-23><24-27><28-43>
+//      |                     ----------------------
+//      |                     dud  udu             u
+//     LT:REG_2,range:<22-23><24-27><35-43>
+//      |                     ------      ----------
+//      |                     dud  u      d        u
+//  4. Use the available physical register to replace the spill/reload IR by
+//     the register move operation.
+//
+//Based on the above idea, in order to decrease the most of the memory access
+//introduced by the spill/reload operation, we group the spill/reload IRs of
+//a spill var three times in three group modes, and try to find a proper
+//register which can eliminate the spill and reload IRs in the group.
+//
+//Let's explain the three group modes.
+//  1. GROUP_MODE_FULL:
+//       Group all the spill and reload IRs of a spill var into a big group,
+//       find an available register which can replace the spill var for all
+//       the spill and reload IRs in the group. That means we can eliminate
+//       all the spill reload IRs for this spill var.
+//
+//  2. GROUP_MOD_PART:
+//       Group some of spill and reload IRs for a spill var. Normally the USE
+//       of a spill var is reload operation, the DEF of a spill var is spill
+//       operation, If we find the USE of a spill var is only from a single
+//       DEF, then we group these spill and reload IRs into a group. That
+//       means the if the USE of a spill var is shared by multiple DEFs, this
+//       reload IR will not be grouped. We use the MDSSA Def-Use chain during
+//       the group process.
+//
+//  3. GROUP_MOD_SINGLE:
+//       Group each single DEF and USE of a spill var into a group, we also
+//       use the MDSSA Def-Use chain during the group process.
+//
+//  For a specific spill var, we do the following three steps:
+//  1. We do the full group for this var, if the full group can be promoted by
+//     register, we will not do the next two steps.
+//  2. We do the partial group for this var, usually there may be more than
+//     one group in the partial group mode. We try to promote some groups if
+//     e. If all these partial groups are promoted, we will not do the
+//     next step. In this step, we replace the reload IRs with move IRs, and
+//     leave the spill IR there because it is may be needed by other reload
+//     IRs.
+//  3. We do the single groups for the spill and reload which are not promoted
+//     in previous two steps. In this step, we replace the reload IRs with
+//     move IRs, and leave the spill IR there because it is may be needed by
+//     other reload IRs.
+//
+//Key data structure used in this class:
+//1. IRGroup: Record the an vector of spill/reload IR of a var, and also
+//            include the weight, the suitable promoted register for the IRs
+//            in the group and var info.
+//2. VarGroup:Record all the IR groups of a var, because we have three modes,
+//            there may be have more than one group is partial and single
+//            group mode.
+//3. Var2Groups:Map a var to it's group information.
+//                          | ID 1: IRGroup: [IR_1, IR2, ...]
+//      var --> VarGroups --| ID 2: IRGroup: [IR_5, IR6, ...]
+//                          | ID 3: IRGroup: [IR_3, IR9, ...]
+//                          | ...
+class SpillReloadPromote {
+    COPY_CONSTRUCTOR(SpillReloadPromote);
+    enum GROUP_MODE {
+        GROUP_MODE_UNDEF = 0,
+        GROUP_MODE_FULL = 1,
+        GROUP_MODE_PART = 2,
+        GROUP_MODE_SINGLE = 3,
+    };
+    GROUP_MODE m_mode;
+    Region * m_rg;
+    BBList * m_bb_list;
+    LinearScanRA * m_lsra;
+    RegSetImpl & m_rsimpl;
+    MDSSAMgr * m_mdssamgr;
+    List<VarGroups*> m_vargroups_list;
+    List<IRGroup*> m_irgroup_list;
+
+    //Full group.
+    Var2Groups m_full_groups;
+    IRGroupVec m_full_group_vec;
+
+    //Record the full group promotion results.
+    VarPromoteTab m_vartab;
+
+    //Single group.
+    Var2Groups m_part_groups;
+    IRGroupVec m_valid_partial_groups;
+
+    //Single Group.
+    Var2Groups m_single_groups;
+    IRGroupVec m_valid_single_groups;
+
+    LSRAVarLivenessMgr m_var_liveness_mgr;
+    VarLifeTimeMgr m_var_ltmgr;
+
+    //Record the unused spill/reload IRs after promoted by register.
+    IRVec m_unused_irs;
+public:
+    SpillReloadPromote(Region * rg, LinearScanRA * ra, RegSetImpl & rsimpl);
+    ~SpillReloadPromote();
+
+    void addToValidPartialGroup(IRGroup * irgp)
+    {  ASSERT0(irgp); m_valid_partial_groups.append(irgp); }
+    void addToFullGroupVec(IRGroup * irgp)
+    {  ASSERT0(irgp); m_full_group_vec.append(irgp); }
+    void addToValidSingleGroup(IRGroup * irgp)
+    {  ASSERT0(irgp); m_valid_single_groups.append(irgp); }
+
+    void addUnusedIR(IR * ir) { ASSERT0(ir); m_unused_irs.append(ir); }
+
+    IRGroup * allocIRGroup()
+    {
+        IRGroup * ir_gp = new IRGroup();
+        m_irgroup_list.append_tail(ir_gp);
+        return ir_gp;
+    }
+
+    VarGroups * allocVarGroups()
+    {
+        VarGroups * var_gps = new VarGroups();
+        m_vargroups_list.append_tail(var_gps);
+        return var_gps;
+    }
+    //Calculate the weight for the group, which can be used as the order
+    //of group to find the register for promotion, becasue the bigger
+    //weight indicates the bigger cost for spill/reload.
+    UINT calcWeightForGroup(IRVec const* irvec) const;
+
+    //Destory the resources allocated for the tmp vars.
+    void destroyTmpVar();
+
+    //Do the full group.
+    void doFullGroup(OptCtx & oc);
+    void doFullGroupIR(IR const* ir);
+
+    //Do the partial group.
+    void doPartialGroup(OptCtx & oc);
+
+    //Do the single group.
+    void doSingleGroup(OptCtx & oc);
+
+    void dump() const;
+    void dumpFullGroup() const;
+    void dumpPartialGroup() const;
+    void dumpSingleGroup() const;
+
+    //Find the register for full group var.
+    void findRegForFullGroupVars();
+
+    //Find the register for fpartial group var.
+    void findRegForPartialGroupVars();
+
+    //Find the register for single group var.
+    void findRegForSingleGroupVars();
+
+    void genDUInfo(OptCtx & oc);
+
+    void genVar2DLifeTime(OptCtx & oc);
+
+    //Generate a new IR group for var.
+    //var_groups: point to the var group object.
+    //var: the var of the group.
+    IRGroup * genIRGroupForVar(MOD VarGroups * var_groups, Var const* var);
+
+    //generate the single var group based on IR group of the partial group.
+    //irgp: The IR group of partial group.
+    //v: the var of the group.
+    void genSingleVarGroupFromPartialIRGroup(IRGroup * irgp, Var const* v);
+
+    //Get the best register to accomodate the specified range.
+    //rv: the input range.
+    //ty: the required data type when find a available register.
+    //best_reg: the best register that can hold the 'rv'.
+    //reg_tab: used to store all the availble regs for the 'rv'.
+    //return true if any proper register can be found, or else, retun false.
+    bool getRegToCoverRange(Range const& tar_range, Type const* reg_ty,
+        OUT Reg & best_reg, MOD xcom::TTab<Reg> & reg_tab);
+
+    TargInfoMgr * getTIMgr() const
+    { return m_rg->getRegionMgr()->getTargInfoMgr(); }
+
+    //Group the reload IR based on the use-set.
+    //useset: the use-set of spill IR.
+    //ir_group: the IR group to be filled.
+    void groupReloadInUseSet(IRSet const& useset, MOD IRGroup * ir_group);
+
+    //Group the IR in partial group mode.
+    void groupIRPartially(IR const* ir, MOD IRSet & useset);
+
+    //Group the IR in single group mode.
+    void groupIRSingle(IR const* ir);
+
+    void groupFully();
+    void groupPartially();
+    void groupSingle();
+
+    //Return the IRGroupVec per the different group mode.
+    IRGroupVec * getIRGroups()
+    {
+        switch (m_mode) {
+        case GROUP_MODE_FULL: return &m_full_group_vec;
+        case GROUP_MODE_PART: return &m_valid_partial_groups;
+        case GROUP_MODE_SINGLE: return &m_valid_single_groups;
+        case GROUP_MODE_UNDEF:
+        default: ASSERT0(0); return nullptr;
+        }
+    }
+
+    //Get and generate the IR group in var group for a var.
+    //var_groups: the var group.
+    //var: the var to be grouped.
+    IRGroup * getAndGenIRGroupFromFullGroup(MOD VarGroups * var_groups,
+        Var const* var)
+    {
+        ASSERT0(var_groups);
+        ASSERT0(var_groups->getGroupNum() <= 1);
+        if (var_groups->getGroupNum() == 1) {
+            return var_groups->getIRGroup(0);
+        }
+        IRGroup * irgp = allocIRGroup();
+        IRGROUP_orgvar(irgp) = var;
+        var_groups->addGroup(0, irgp);
+        return irgp;
+    }
+
+    //Return the max group number in all the single groups.
+    UINT getMaxSingleGroupNum();
+
+    VarGroups * getAndGenVarFullGroups(Var const* v)
+    {
+        bool find = false;
+        VarGroups * var_groups = m_full_groups.get(v, &find);
+        if (!find) {
+            var_groups = allocVarGroups();
+            m_full_groups.set(v, var_groups);
+        }
+        return var_groups;
+    }
+    VarGroups * getAndGenVarPartialGroups(Var const* v)
+    {
+        bool find = false;
+        VarGroups * var_groups = m_part_groups.get(v, &find);
+        if (!find) {
+            var_groups = allocVarGroups();
+            m_part_groups.set(v, var_groups);
+        }
+        return var_groups;
+    }
+
+    VarGroups * getAndGenVarSingleGroups(Var const* v)
+    {
+        bool find = false;
+        VarGroups * var_groups = m_single_groups.get(v, &find);
+        if (!find) {
+            var_groups = allocVarGroups();
+            VARGROUPS_has_all(var_groups) = false;
+            m_single_groups.set(v, var_groups);
+        }
+        return var_groups;
+    }
+
+    //Get the best register to accomodate the specified range vector.
+    //rv: the input vector of ranges.
+    //ty: the required data type when find a available register.
+    //best_reg: the best register that can hold the 'rv'.
+    //reg_tab: used to store all the availble regs for the 'rv'.
+    //return true if any proper register can be found, or else, retun false.
+    bool getBestRegToAccommodateRange(RangeVec const& rv, Type const* ty,
+        OUT Reg & best_reg, MOD xcom::TTab<Reg> & reg_tab);
+
+    VarLifeTimeMgr & getVarLTMgr() { return m_var_ltmgr; }
+
+    //Return true if the 'v' has been promoted in full group mode.
+    bool isPromotedInFullGroup(Var const* v) const
+    { return m_vartab.find(v); }
+
+    bool perform(OptCtx & oc);
+
+    //Do the promote for the spill and reload IR for full group mode.
+    void promoteSpillReloadFullGroup(OptCtx & oc);
+
+    //Do the promote for the spill and reload IR for partial group mode.
+    void promoteSpillReloadPartialGroup(OptCtx & oc);
+
+    //Do the promote for the spill and reload IR for single group mode.
+    void promoteSpillReloadSingleGroup(OptCtx & oc);
+
+    //Promote the spill reload for the specified group.
+    //gp: the group to be promoted.
+    //remove: a flag to indicate the spill IR is removed or not.
+    void promoteSpillReloadForGroup(IRGroup * gp, bool remove, OptCtx & oc);
+
+    //Promote the reload IR by a specifed register.
+    //cur: the reload IR to be promoted.
+    //prno: the src PRNO.
+    void promoteReloadOp(IR * cur, PRNO prno);
+
+    //Promote the spill IR by a specifed register.
+    //cur: the spill IR to be promoted.
+    //prno: the dst PRNO.
+    //remove: a flag to indicate the spill IR is removed or not.
+    void promoteSpillOp(IR * cur, PRNO prno, bool remove, OptCtx & oc);
+
+    //Record the callee register.
+    void recordCallee(Reg r)
+    {
+        ASSERT0(r != REG_UNDEF);
+        if (!m_rsimpl.isCallee(r)) { return; }
+        RegSet & calleeset = m_rsimpl.getUsedCallee();
+        if (calleeset.is_contain(r)) { return; }
+        m_rsimpl.recordUsedCallee(r);
+    }
+
+    //Removed the unused spill reload IR.
+    void removeUnusedIR(OptCtx & oc);
+
+    //Rename the var of IR for the var liftime computation.
+    void renameIRVar();
+
+    //Recover the var of IR.
+    void revertIRVar();
+
+    //Set the group mode.
+    void setGroupMode(GROUP_MODE mode) { m_mode = mode; }
+
+    //Sort the groups.
+    void sortFullGroup();
+    void sortPartialGroup();
+    void sortSingleGroup(UINT id);
+
+    //Try to assign a register for a group.
+    //vid: the group id.
+    //irvec: the group of spill reload IR.
+    //reg_tab: used to store all the availble regs for a group.
+    //return the best suitable register for the group.
+    Reg tryAssignRegForGroup(UINT vid, IRVec const* irvec,
+        MOD xcom::TTab<Reg> & reg_tab);
+};
+//END SpillReloadPromote
+
+
 //
 //Start LSRAPostOpt.
 //
@@ -230,6 +720,9 @@ protected:
     //                                                                BB4 __|
     IRBB * genBBToHoistSpillReloadOutsideLoop(LI<IRBB> const* li,
         MOD BB2BB & bb2insert, MOD OptCtx & oc);
+
+    //Save the map of reg and it's corresponded lifetime.
+    void generateRegLifeTime(OptCtx & oc);
 
     //Calculate the number of common IRs at the end of BBs.
     UINT getCommonIRNumsSuffix(Vector<IRBB*> const& bbvec);
@@ -535,6 +1028,9 @@ class PosGapIROpt {
 
     //Used to store the dead reload/remat/mov IRs.
     ConstIRTab m_dead_misc_tab;
+
+    //Used to store the dead original remat IRs.
+    ConstIRTab m_dead_org_remat_tab;
 public:
     PosGapIROpt(LSRAPostOpt * post_opt) : m_post_opt(post_opt)
     {
@@ -548,9 +1044,29 @@ public:
     { ASSERT0(ir); m_dead_misc_tab.append(ir); }
     void addDeadSpillIR(IR const* ir)
     { ASSERT0(ir); m_dead_spill_tab.append(ir); }
+    void addDeadOrgRematIR(IR const* ir)
+    { ASSERT0(ir); m_dead_org_remat_tab.append(ir); }
 
     void collectDeadMiscIR();
     void collectDeadSpillIR();
+
+    //Collect the original IR which can be rematerialized, under some cases
+    //the prno defined by original remat IR may have no 'uses' due to the split
+    //of the lifetime responding to this prno, so this remat IR can be removed.
+    //e.g:
+    //  Before split:
+    //    $1 <- 64  #S1
+    //    ...
+    //       <  $1  #S2
+    //  After split:
+    //    $1 <- 64  #S1
+    //    ...
+    //    $9 <- 64  #S3
+    //       <- $9  #S2
+    //  $1 can be rematerialized in #S1, and it is split and renamed to $9,
+    //  #S3 is the remat IR inserted by the LSAR, so the definition of $1 in
+    //  #S1 is not used anymore in #S2 after split.
+    void collectDeadOrgRematIR();
 
     //Generate the Def-Use Info.
     void genDUInfo(OptCtx & oc);
@@ -565,7 +1081,8 @@ public:
     bool perform(OptCtx & oc);
 
     //Remove the recorded spill and reload IRs.
-    void removeDeadIR();
+    //'oc' is used to remove redudant ir statement.
+    void removeDeadIR(OptCtx & oc);
 };
 //END PosGapIROpt
 

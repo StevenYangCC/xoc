@@ -48,11 +48,10 @@ typedef UINT REGDIdx;
 //Each Reg has a base, it is corresponding to an unique RegFile.
 #define REGD_base(rd) ((rd)->m_base)
 
-//Record the offset from base if Reg is exact.
+//Record the bit offset from base of Reg.
 #define REGD_ofst(rd) ((rd)->m_ofst)
 
-//Record the byte size of memory object if Reg is exact or range,
-//or it is not available.
+//Record the bit size of Reg
 #define REGD_size(rd) ((rd)->m_size)
 #define REGD_reg(rd) ((rd)->m_reg)
 
@@ -236,7 +235,7 @@ public:
 };
 
 
-//Each Var corresponds to an unqiue RegDTab.
+//Each REGFILE corresponds to an unqiue RegDTab.
 class RegDTab {
     COPY_CONSTRUCTOR(RegDTab);
 protected:
@@ -246,9 +245,9 @@ public:
 
     void append(RegD const* rd) { m_ofst_tab.append(rd); }
 
-    void clean() { m_ofst_tab.clean(); }
     //Count memory usage for current object.
     size_t count_mem() const { return m_ofst_tab.count_mem(); }
+    void clean() { m_ofst_tab.clean(); }
 
     RegD const* find(RegD const* rd) { return m_ofst_tab.find(rd); }
 
@@ -310,23 +309,6 @@ public:
     void diff(RegDSet const& rds, DefMiscBitSetMgr & m)
     {
         ASSERT0(this != &rds);
-
-        //TBD: Does it necessary to judge if either current
-        //RegD or input RegD is FULL_MEM?
-        //As we observed, passes that utilize RegD relationship add
-        //REGD2 to according IR's RegDSet, which can keep global variables
-        //and REGD2 dependence.
-        //e.g:
-        //  #mustdef=REGD10, maydef={REGD2, REGD10}, g is global variable that
-        //  #represented in Program Region.
-        //  g=10;
-        //
-        //  #maydef={REGD2, REGD10}
-        //  foo();
-        //if (((DefSBitSetCore const&)rds).is_contain(REGD_FULL_MEM)) {
-        //    clean(m);
-        //    return;
-        //}
         DefSBitSetCore::diff(rds, m);
     }
     //This function will walk through whole current RegDSet and differenciate

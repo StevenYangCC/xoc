@@ -131,9 +131,7 @@ static void dumpVertexDetail(
     if (dump_mdssa && is_mdssa_valid) {
         ASSERT0(mdssamgr);
         MDPhiList const* philist = mdssamgr->getPhiList(bb);
-        if (philist != nullptr) {
-            mdssamgr->dumpPhiList(philist);
-        }
+        mdssamgr->dumpPhiList(philist);
     }
 
     //Dump IR list.
@@ -379,7 +377,7 @@ IRCFG::IRCFG(IRCFG const& src, BBList * bbl,
 
 
 //Control flow optimization
-void IRCFG::cf_opt()
+void IRCFG::doCFSOpt()
 {
     bool change = true;
     while (change) {
@@ -388,10 +386,60 @@ void IRCFG::cf_opt()
         for (IRBB * bb = bbl->get_head(); bb != nullptr; bb = bbl->get_next()) {
             change = goto_opt(bb);
             if (change) { break; }
-            change = if_opt(bb);
+            change = doIFOpt(bb);
             if (change) { break; }
         }
     }
+}
+
+
+bool IRCFG::tryBuildEHEdgeByEHLabelInfo(IRBB const* bb)
+{
+    ASSERT0(bb);
+    bool find = false;
+    IRBB * pbb = const_cast<IRBB*>(bb);
+    for (LabelInfo const* li = pbb->getLabelList().get_head();
+         li != nullptr; li = pbb->getLabelList().get_next()) {
+        IRBB * libb = getBBByLabel(li);
+        ASSERT0_DUMMYUSE(libb == bb);
+        if (!li->is_catch_start()) { continue; }
+
+        //A BB with catch-start label should have at least one exception path
+        //that comes from region start.
+        IRBB const* entry = getEntry();
+        ASSERT0(entry);
+        xcom::Edge * e = DGraph::addEdge(entry->id(), bb->id());
+        EDGE_info(e) = xmalloc(sizeof(CFGEdgeInfo));
+        CFGEI_is_eh((CFGEdgeInfo*)EDGE_info(e)) = true;
+        find = true;
+    }
+    return find;
+}
+
+
+bool IRCFG::tryBuildEHEdgeByEHAttachInfo(IR const* ir)
+{
+    ASSERT0(ir && ir->is_stmt());
+    if (!ir->isMayThrow(true)) { return false; }
+    if (ir->getAI() == nullptr) { return false; }
+    EHLabelAttachInfo const* ehlab =
+        (EHLabelAttachInfo const*)ir->getAI()->get(AI_EH_LABEL);
+    if (ehlab == nullptr) { return false; }
+    xcom::SList<LabelInfo*> const& labs = ehlab->read_labels();
+    bool find = false;
+    IRBB const* bb = ir->getBB();
+    ASSERT0(bb);
+    for (xcom::SC<LabelInfo*> * sc = labs.get_head();
+         sc != labs.end(); sc = labs.get_next(sc)) {
+        ASSERT0(sc);
+        IRBB const* tgt = findBBbyLabel(sc->val());
+        ASSERT0(tgt);
+        xcom::Edge * e = DGraph::addEdge(bb->id(), tgt->id());
+        EDGE_info(e) = xmalloc(sizeof(CFGEdgeInfo));
+        CFGEI_is_eh((CFGEdgeInfo*)EDGE_info(e)) = true;
+        find = true;
+    }
+    return find;
 }
 
 
@@ -404,25 +452,10 @@ void IRCFG::buildEHEdge()
          bbit != m_bb_list->end(); bbit = m_bb_list->get_next(bbit)) {
         IRBB const* bb = bbit->val();
         IRListIter irit;
-        IR * x = const_cast<IRBB*>(bb)->getIRList().get_tail(&irit);
-        if (x != nullptr && x->isMayThrow(true) && x->getAI() != nullptr) {
-            EHLabelAttachInfo const* ehlab =
-                (EHLabelAttachInfo const*)x->getAI()->get(AI_EH_LABEL);
-            if (ehlab == nullptr) { continue; }
-
-            xcom::SC<LabelInfo*> * sc;
-            SList<LabelInfo*> const& labs = ehlab->read_labels();
-            for (sc = labs.get_head();
-                 sc != labs.end(); sc = labs.get_next(sc)) {
-                ASSERT0(sc);
-                IRBB const* tgt = findBBbyLabel(sc->val());
-                ASSERT0(tgt);
-                xcom::Edge * e = DGraph::addEdge(bb->id(), tgt->id());
-                EDGE_info(e) = xmalloc(sizeof(CFGEdgeInfo));
-                CFGEI_is_eh((CFGEdgeInfo*)EDGE_info(e)) = true;
-                m_has_eh_edge = true;
-            }
-        }
+        IR * last = const_cast<IRBB*>(bb)->getIRList().get_tail(&irit);
+        if (last == nullptr) { continue; }
+        m_has_eh_edge |= tryBuildEHEdgeByEHAttachInfo(last);
+        m_has_eh_edge |= tryBuildEHEdgeByEHLabelInfo(bb);
     }
 }
 
@@ -1097,6 +1130,7 @@ void IRCFG::initCFG(OptCtx & oc)
     //cfg->removeEmptyBB();
     build(oc);
     buildEHEdge();
+    ASSERT0L3(verifyIRandBB(getBBList(), m_rg));
     if (g_dump_opt.isDumpAfterPass() && g_dump_opt.isDumpCFG()) {
         dump();
     }
@@ -2480,6 +2514,15 @@ void IRCFG::dumpSubGraph(
 }
 
 
+void IRCFG::dumpDOT() const
+{
+    DumpFlag f = DumpFlag::combineIRID(
+        IR_DUMP_KID | IR_DUMP_SRC_LINE | IR_DUMP_ESCAPE_DOUBLE_QUOTE);
+    IRDumpCtx<> ctx(4, f, nullptr, nullptr);
+    dumpDOT((CHAR const*)nullptr, DUMP_COMBINE, &ctx);
+}
+
+
 void IRCFG::dumpDOT(CHAR const* name, UINT flag, MOD IRDumpCtx<> * ctx) const
 {
     //Do not dump if LogMr is not initialized.
@@ -2994,7 +3037,7 @@ void IRCFG::computeDomAndIdom(MOD OptCtx & oc, xcom::BitSet const* uni)
     DUMMYUSE(uni);
     START_TIMER(t, "Compute Dom, IDom");
     ASSERT0(oc.is_cfg_valid());
-    ASSERTN(m_entry, ("ONLY support SESE or SEME"));
+    ASSERTN(getEntry(), ("ONLY support SESE or SEME"));
     m_rg->getPassMgr()->checkValidAndRecompute(&oc, PASS_RPO, PASS_UNDEF);
     RPOVexList * vlst = getRPOVexList();
     ASSERT0(vlst);

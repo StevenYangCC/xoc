@@ -1206,14 +1206,21 @@ void RegLifeTimeMgr::mergeRegLifeTimeWithPRLT(MOD LifeTime * lt_new)
     ASSERT0(lt_new && m_rg && m_rg->getRegionMgr());
     ASSERT0(m_rg->getRegionMgr()->getTargInfoMgr());
 
-    if (m_lsra->canInterfereWithOtherLT(lt_new->getPrno())) {
-        //If prno is expected to interfere with others, so this prno can
-        //not participate the merge process.
-        return;
-    }
     //Get original corresponding lifetime of 'reg' assigned to 'lt_new'.
     Reg reg = m_lsra->getReg(lt_new->getPrno());
     ASSERT0(reg != REG_UNDEF);
+    if (m_lsra->isZeroRegister(reg)) {
+        //If the assigned physical-register is zero register, we should ignore
+        //this lifetime, because the zero regsiter can not be reused.
+        return;
+    }
+    if (!lt_new->isOccHasDef()) {
+        //If the lifetime 'lt_new' has no define in its occ list, that means
+        //the data of 'lt_new' at the USE position of its occ list can be
+        //any value, it is not be cared. So we should ignore this liftime
+        //during the merge process.
+        return;
+    }
     LifeTime * lt_ori = getRegLifeTime(reg);
     ASSERT0(lt_ori);
     mergeLifeTime(lt_ori->getRangeVec(), lt_new->getRangeVec());

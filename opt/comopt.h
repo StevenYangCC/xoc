@@ -93,7 +93,6 @@ using namespace xgen;
 #include "var2offset.h"
 #include "ir_reloc_mgr.h"
 #include "dynamic_stack.h"
-#include "kernel_adjustment.h"
 #include "gp_adjustment.h"
 #include "br_opt.h"
 #include "igoto_opt.h"
@@ -114,7 +113,6 @@ using namespace xgen;
 #include "ir_vrp.h"
 #include "ir_ccp.h"
 #include "ir_pre.h"
-#include "workaround.h"
 #endif
 
 #include "ir_decl_ext.h"
@@ -133,4 +131,3 @@ using namespace xgen;
 #include "insert_cvt.h"
 #include "invert_brtgt.h"
 #include "targ_opt.inc"
-#include "stack_coloring.h"

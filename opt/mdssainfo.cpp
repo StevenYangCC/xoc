@@ -746,7 +746,7 @@ void MDPhi::dumpOpnd(IR const* opnd, IRBB const* pred, Region const* rg,
     prt(rg, "(");
     switch (opnd->getCode()) {
     case IR_CONST:
-        dumpConstContent(opnd, rg);
+        dumpConstContent(opnd, rg, nullptr);
         break;
     case IR_LDA:
         prt(rg, "LDA");

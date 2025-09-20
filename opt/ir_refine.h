@@ -215,7 +215,7 @@ protected:
     //Peephole optimizations.
     virtual IR * refineSetelem(IR * ir, bool & change, RefineCtx & rc);
     IR * refineGetelem(IR * ir, bool & change, RefineCtx & rc);
-    IR * refineBand(IR * ir, bool & change, RefineCtx & rc);
+    virtual IR * refineBand(IR * ir, bool & change, RefineCtx & rc);
     IR * refineBor(IR * ir, bool & change, RefineCtx & rc);
     virtual IR * refineCvt(IR * ir, bool & change, RefineCtx & rc);
     IR * refineLand(IR * ir, bool & change, RefineCtx & rc);

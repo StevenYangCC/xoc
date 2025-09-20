@@ -584,8 +584,9 @@ public:
         OUT RegSet & set, PRNOConstraintsTab const& consist_prs);
 
     //Init all register sets.
-    //Note the function invoked by constructor can not be virtual.
-    void initRegSet();
+    //Subclass can have different sets of registers,
+    //so this is a virtual function.
+    virtual void initRegSet();
 
     //True if reg is allocable.
     bool isAvailAllocable(Reg r) const
@@ -701,7 +702,7 @@ public:
     virtual Reg pickReg(RegSet & set);
 
     //Pick reg in a given regset.
-    static void pickReg(RegSet & set, Reg r);
+    virtual void pickReg(RegSet & set, Reg r);
 
     //Pick reg by the incramental order in a given regset, usually the
     //arg passer and epilog/prolog pick the reg by this order.
@@ -777,6 +778,126 @@ public:
     virtual Reg pickReg(RegSet & set) override;
 };
 //END RoundRobinRegSetImpl
+
+
+//
+//START LRURegSetImpl
+//
+class LRURegSetImpl : public RegSetImpl {
+    COPY_CONSTRUCTOR(LRURegSetImpl);
+protected:
+    //This class is an adapter class of the List class,
+    //used to implement a queue (enqueue from tail, dequeue from head),
+    //but this queue allows the deletion of elements at any position.
+    //This class maintains a collection of free physical registers.
+    //When a physical register is unused or released, it will be added
+    //to the queue. Each time a physical register is requested,
+    //it only needs to be retrieved from the head of the queue.
+    //When it is empty, it returns REG-UNDEF, indicating that
+    //there are no idle physical registers and may need to be split or spilled.
+    //Through this class, the physical register selection strategy of LRU
+    //can be implemented, as the newly used register is always placed at the
+    //end of the queue, which means it will only be selected again when other
+    //physical registers in the queue are exhausted.
+    //At the beginning, it is assumed that the physical register is idle,
+    //so it is queued sequentially. When a physical register is needed for
+    //register allocation, the 'dequeue' interface is called to queue the
+    //queue header element. When the lifetime of a PRNO ends, release
+    //the physical registers it occupies and call the 'enqueue' interface
+    //to join the physical registers from the end of the queue.
+    //This ensures that the newly used physical register always appears
+    //at the end of the queue, thus ensuring that the selected physical
+    //register is always the oldest unused.
+    class FreeRegQueue {
+        COPY_CONSTRUCTOR(FreeRegQueue);
+        typedef xcom::List<Reg> RegList;
+        typedef xcom::List<Reg>::Iter RegIter;
+        typedef xcom::Vector<RegIter> Reg2Iter;
+        RegList m_list;
+
+        //Mapping from Reg to RegIter.
+        //Used for quickly deleting elements at any position
+        //in 'm_list', with a time complexity of O(1).
+        Reg2Iter m_reg2iter;
+
+        void init()
+        {
+            m_reg2iter.grow(REG_NUM + 1);
+            m_reg2iter.clean();
+        }
+    public:
+        FreeRegQueue() { init(); }
+        ~FreeRegQueue() {}
+
+        //Extract an element from the head of the queue.
+        Reg dequeue()
+        {
+            Reg reg = m_list.get_head();
+            m_list.remove_head();
+            m_reg2iter[reg] = nullptr;
+            return reg;
+        }
+
+        //Add reg to the queue.
+        void enqueue(Reg reg)
+        {
+            RegIter iter = m_list.append_tail(reg);
+            ASSERT0(iter && m_reg2iter[reg] == nullptr);
+            m_reg2iter[reg] = iter;
+        }
+
+        //Return true if m_list is empty.
+        bool isEmpty() const
+        { return m_list.get_elem_count() == 0; }
+
+        //Remove 'reg' from the queue.
+        void remove(Reg reg)
+        {
+            RegIter iter = m_reg2iter[reg];
+            if (iter == nullptr) { return; }
+            m_list.remove(iter);
+            m_reg2iter[reg] = nullptr;
+        }
+    };
+
+    //The 'm_free_xx' object stores free physical registers of different types.
+    //Note that at this stage, it is not necessary to separately consider
+    //registers of categories such as 'param', 'return_value', and 'div_rem',
+    //as they all belong to the caller register. Only the caller and caller
+    //types need to be distinguished at this stage.
+    FreeRegQueue m_free_caller_scalar_queue;
+    FreeRegQueue m_free_caller_vector_queue;
+    FreeRegQueue m_free_callee_scalar_queue;
+    FreeRegQueue m_free_callee_vector_queue;
+
+    //Initialize the free register queue.
+    virtual void initFreeQueue();
+
+    //Init all register sets.
+    virtual void initRegSet() override;
+
+    //Pick up a physical register from allocable register set by the LRU way.
+    virtual Reg pickRegLRU(RegSet & set);
+public:
+    LRURegSetImpl(LinearScanRA & ra) : RegSetImpl(ra) {}
+    virtual ~LRURegSetImpl() {}
+
+    //Free register from all callee alias register set.
+    virtual void freeRegisterFromCalleeAliasSet(Reg r) override;
+
+    //Free register from all caller alias register set.
+    virtual void freeRegisterFromCallerAliasSet(Reg r) override;
+
+    //Pick reg in a given regset and return it.
+    virtual Reg pickReg(RegSet & set) override
+    { return pickRegLRU(set); }
+
+    //Pick reg in a given regset.
+    //When a register has an alias, this function needs to
+    //be called to remove the register 'r' that exists in the collection.
+    virtual void pickReg(RegSet & set, Reg r) override;
+};
+//END LRURegSetImpl
 
 
 //
@@ -894,499 +1015,6 @@ public:
 //END LTConstraintsMgr
 
 
-typedef xcom::List<Reg> RegList;
-typedef xcom::TTab<Var const*> VarPromoteTab;
-
-//
-//START IRGroup
-//
-#define IRGROUP_weight(g) (g->weight)
-#define IRGROUP_reg(g) (g->reg)
-#define IRGROUP_tmpvar(g) (g->tmp_var)
-#define IRGROUP_orgvar(g) (g->org_var)
-class IRGroup {
-    COPY_CONSTRUCTOR(IRGroup);
-public:
-    //Record the weight for the spill and reload IRs in the current group.
-    UINT weight;
-
-    //Record the available register can be used to do the promotion.
-    Reg reg;
-
-    //Record the original var used for the spill and reload IR.
-    Var const* org_var;
-
-    //Record the temp var which used for computing the lifetime of current
-    //group.
-    Var const* tmp_var;
-
-    //The set of reload and spill IRs.
-    IRVec irvec;
-public:
-    IRGroup(): weight(0), reg(REG_UNDEF), org_var(nullptr), tmp_var(REG_UNDEF)
-    {}
-
-    //Add an IR into the current group.
-    void addIR(IR const* ir)
-    {
-        ASSERT0(ir);
-        ASSERT0(ir->is_stpr() || ir->is_st());
-        irvec.append(const_cast<IR*>(ir));
-    }
-
-    void dump(Region * rg) const;
-
-    //Get the number of IR for the current group.
-    UINT getIRCnt() const { return irvec.get_elem_count(); }
-
-    IRVec const* getIRVec() const
-    { return &irvec; }
-
-    //Modify the var of IR in the group by the input var 'v'.
-    void modifyIRVar(Var const* v);
-
-    //Renanem the var of IR to the temp_var.
-    void renameIRVar();
-
-    //recover the original var in the IRs of current group.
-    void revertIRVar();
-};
-//END IRGroup
-
-typedef xcom::Vector<IRGroup*> IRGroups;
-
-//
-//START VarGroups
-//
-#define VARGROUPS_has_all(v) (v->m_has_all)
-class VarGroups {
-    COPY_CONSTRUCTOR(VarGroups);
-public:
-    //Used to indicate the current groups contain all the spill and reload
-    //IRs for the current spill var.
-    bool m_has_all;
-
-    //The groups for the spill var.
-    IRGroups * m_groups;
-public:
-    VarGroups() : m_has_all(true)
-    {
-        m_groups = new IRGroups();
-    }
-    ~VarGroups()
-    {
-        if (m_groups != nullptr) { delete m_groups; }
-    }
-
-    //Add a new group to the spill var.
-    void addGroup(UINT gid, IRGroup * irgp)
-    {
-        ASSERT0(irgp);
-        ASSERT0(m_groups);
-        m_groups->set(gid, irgp);
-    }
-
-    //Add the input ir to the specified group indicated by the group id.
-    void addIRToGroup(UINT gid, IR const* ir)
-    {
-        ASSERT0(ir);
-        ASSERT0(m_groups);
-        ASSERT0(m_groups->get(gid));
-        m_groups->get(gid)->addIR(ir);
-    }
-
-    void dump(Region * rg) const;
-
-    //Get the group number of the spill var.
-    UINT getGroupNum() const
-    {
-        if (m_groups == nullptr) { return 0; }
-        return m_groups->get_elem_count();
-    }
-
-    //Return the goups of the spill var.
-    IRGroup * getIRGroup(UINT idx) const
-    {
-        if (m_groups == nullptr) { return nullptr; }
-        return m_groups->get(idx);
-    }
-
-    //Check the groups of this spill var is full group or not. Return true
-    //if it has all the spill and reload IRs of the spill var, and also has
-    //only one group.
-    bool isFullGroup() const
-    { return m_has_all && m_groups->get_elem_count() == 1; }
-};
-//End VarGroups
-
-typedef xcom::TMap<Var const*, VarGroups*> Var2Groups;
-typedef xcom::TMapIter<Var const*, VarGroups*> Var2GroupsIter;
-typedef xcom::Vector<IRGroup*> IRGroupVec;
-
-//
-//START SpillReloadPromote
-//
-//This class shall promote the spill/reload to the move operation between
-//two registers, which helps to enhance the performance of register allocation.
-//The basic idea of this algorithm is listed below:
-//  1. Group the spill IR and reload IR by a spill var.
-//  2. Construct the var lifetime of each group.
-//  3. Find an available register to which can accomodate the live range of
-//     the spill var for each group by the overview of phisical register
-//     lifetime manager. Becasue all the registers has been assigned to the
-//     prnos during the previous register allocation, we try to find a hole in
-//     the register lifetime to accomodate the liftime of var for each group.
-//     e.g1:REG_1 cannot accomodate the lifetime of VAR_1, but the range of
-//          VAR_1<30-31> fit the hole of REG_2 well, so we can use the REG_2
-//          to replace the spill var VAR_1.
-//     LT:VAR_1,range:<30-31>
-//      |                             --
-//      |                             du
-
-//     LT:REG_1,range:<22-23><24-27><28-43>
-//      |                     ----------------------
-//      |                     dud  udu             u
-//     LT:REG_2,range:<22-23><24-27><35-43>
-//      |                     ------      ----------
-//      |                     dud  u      d        u
-//  4. Use the available physical register to replace the spill/reload IR by
-//     the register move operation.
-//
-//Based on the above idea, in order to decrease the most of the memory access
-//introduced by the spill/reload operation, we group the spill/reload IRs of
-//a spill var three times in three group modes, and try to find a proper
-//register which can eliminate the spill and reload IRs in the group.
-//
-//Let's explain the three group modes.
-//  1. GROUP_MODE_FULL:
-//       Group all the spill and reload IRs of a spill var into a big group,
-//       find an available register which can replace the spill var for all
-//       the spill and reload IRs in the group. That means we can eliminate
-//       all the spill reload IRs for this spill var.
-//
-//  2. GROUP_MOD_PART:
-//       Group some of spill and reload IRs for a spill var. Normally the USE
-//       of a spill var is reload operation, the DEF of a spill var is spill
-//       operation, If we find the USE of a spill var is only from a single
-//       DEF, then we group these spill and reload IRs into a group. That
-//       means the if the USE of a spill var is shared by multiple DEFs, this
-//       reload IR will not be grouped. We use the MDSSA Def-Use chain during
-//       the group process.
-//
-//  3. GROUP_MOD_SINGLE:
-//       Group each single DEF and USE of a spill var into a group, we also
-//       use the MDSSA Def-Use chain during the group process.
-//
-//  For a specific spill var, we do the following three steps:
-//  1. We do the full group for this var, if the full group can be promoted by
-//     register, we will not do the next two steps.
-//  2. We do the partial group for this var, usually there may be more than
-//     one group in the partial group mode. We try to promote some groups if
-//     e. If all these partial groups are promoted, we will not do the
-//     next step. In this step, we replace the reload IRs with move IRs, and
-//     leave the spill IR there because it is may be needed by other reload
-//     IRs.
-//  3. We do the single groups for the spill and reload which are not promoted
-//     in previous two steps. In this step, we replace the reload IRs with
-//     move IRs, and leave the spill IR there because it is may be needed by
-//     other reload IRs.
-//
-//Key data structure used in this class:
-//1. IRGroup: Record the an vector of spill/reload IR of a var, and also
-//            include the weight, the suitable promoted register for the IRs
-//            in the group and var info.
-//2. VarGroup:Record all the IR groups of a var, because we have three modes,
-//            there may be have more than one group is partial and single
-//            group mode.
-//3. Var2Groups:Map a var to it's group information.
-//                          | ID 1: IRGroup: [IR_1, IR2, ...]
-//      var --> VarGroups --| ID 2: IRGroup: [IR_5, IR6, ...]
-//                          | ID 3: IRGroup: [IR_3, IR9, ...]
-//                          | ...
-class SpillReloadPromote {
-    COPY_CONSTRUCTOR(SpillReloadPromote);
-    enum GROUP_MODE {
-        GROUP_MODE_UNDEF = 0,
-        GROUP_MODE_FULL = 1,
-        GROUP_MODE_PART = 2,
-        GROUP_MODE_SINGLE = 3,
-    };
-    GROUP_MODE m_mode;
-    Region * m_rg;
-    BBList * m_bb_list;
-    LinearScanRA * m_lsra;
-    RegSetImpl & m_rsimpl;
-    MDSSAMgr * m_mdssamgr;
-    List<VarGroups*> m_vargroups_list;
-    List<IRGroup*> m_irgroup_list;
-
-    //Full group.
-    Var2Groups m_full_groups;
-    IRGroupVec m_full_group_vec;
-
-    //Record the full group promotion results.
-    VarPromoteTab m_vartab;
-
-    //Single group.
-    Var2Groups m_part_groups;
-    IRGroupVec m_valid_partial_groups;
-
-    //Single Group.
-    Var2Groups m_single_groups;
-    IRGroupVec m_valid_single_groups;
-
-    LSRAVarLivenessMgr m_var_liveness_mgr;
-    VarLifeTimeMgr m_var_ltmgr;
-
-    //Record the unused spill/reload IRs after promoted by register.
-    IRVec m_unused_irs;
-public:
-    SpillReloadPromote(Region * rg, LinearScanRA * ra, RegSetImpl & rsimpl);
-    ~SpillReloadPromote();
-
-    void addToValidPartialGroup(IRGroup * irgp)
-    {  ASSERT0(irgp); m_valid_partial_groups.append(irgp); }
-    void addToFullGroupVec(IRGroup * irgp)
-    {  ASSERT0(irgp); m_full_group_vec.append(irgp); }
-    void addToValidSingleGroup(IRGroup * irgp)
-    {  ASSERT0(irgp); m_valid_single_groups.append(irgp); }
-
-    void addUnusedIR(IR * ir) { ASSERT0(ir); m_unused_irs.append(ir); }
-
-    IRGroup * allocIRGroup()
-    {
-        IRGroup * ir_gp = new IRGroup();
-        m_irgroup_list.append_tail(ir_gp);
-        return ir_gp;
-    }
-
-    VarGroups * allocVarGroups()
-    {
-        VarGroups * var_gps = new VarGroups();
-        m_vargroups_list.append_tail(var_gps);
-        return var_gps;
-    }
-    //Calculate the weight for the group, which can be used as the order
-    //of group to find the register for promotion, becasue the bigger
-    //weight indicates the bigger cost for spill/reload.
-    UINT calcWeightForGroup(IRVec const* irvec) const;
-
-    //Destory the resources allocated for the tmp vars.
-    void destroyTmpVar();
-
-    //Do the full group.
-    void doFullGroup(OptCtx & oc);
-    void doFullGroupReloadIR(IR const* ir);
-    void doFullGroupSpillIR(IR const* ir);
-
-    //Do the partial group.
-    void doPartialGroup(OptCtx & oc);
-
-    //Do the single group.
-    void doSingleGroup(OptCtx & oc);
-
-    void dump() const;
-    void dumpFullGroup() const;
-    void dumpPartialGroup() const;
-    void dumpSingleGroup() const;
-
-    //Find the register for full group var.
-    void findRegForFullGroupVars();
-
-    //Find the register for fpartial group var.
-    void findRegForPartialGroupVars();
-
-    //Find the register for single group var.
-    void findRegForSingleGroupVars();
-
-    void genDUInfo(OptCtx & oc);
-
-    void genVar2DLifeTime(OptCtx & oc);
-
-    //Generate a new IR group for var.
-    //var_groups: point to the var group object.
-    //var: the var of the group.
-    IRGroup * genIRGroupForVar(MOD VarGroups * var_groups, Var const* var);
-
-    //generate the single var group based on IR group of the partial group.
-    //irgp: The IR group of partial group.
-    //v: the var of the group.
-    void genSingleVarGroupFromPartialIRGroup(IRGroup * irgp, Var const* v);
-
-    //Get the best register to accomodate the specified range.
-    //rv: the input range.
-    //ty: the required data type when find a available register.
-    //best_reg: the best register that can hold the 'rv'.
-    //reg_tab: used to store all the availble regs for the 'rv'.
-    //return true if any proper register can be found, or else, retun false.
-    bool getRegToCoverRange(Range const& tar_range, Type const* reg_ty,
-        OUT Reg & best_reg, MOD xcom::TTab<Reg> & reg_tab);
-
-    TargInfoMgr * getTIMgr() const
-    { return m_rg->getRegionMgr()->getTargInfoMgr(); }
-
-    //Group the reload IR based on the use-set.
-    //useset: the use-set of spill IR.
-    //ir_group: the IR group to be filled.
-    void groupReloadInUseSet(IRSet const& useset, MOD IRGroup * ir_group);
-
-    //Group the IR in partial group mode.
-    void groupIRPartially(IR const* ir, MOD IRSet & useset);
-
-    //Group the IR in single group mode.
-    void groupIRSingle(IR const* ir);
-
-    void groupFully();
-    void groupPartially();
-    void groupSingle();
-
-    //Return the IRGroupVec per the different group mode.
-    IRGroupVec * getIRGroups()
-    {
-        switch (m_mode) {
-        case GROUP_MODE_FULL: return &m_full_group_vec;
-        case GROUP_MODE_PART: return &m_valid_partial_groups;
-        case GROUP_MODE_SINGLE: return &m_valid_single_groups;
-        case GROUP_MODE_UNDEF:
-        default: ASSERT0(0); return nullptr;
-        }
-    }
-
-    //Get and generate the IR group in var group for a var.
-    //var_groups: the var group.
-    //var: the var to be grouped.
-    IRGroup * getAndGenIRGroupFromFullGroup(MOD VarGroups * var_groups,
-        Var const* var)
-    {
-        ASSERT0(var_groups);
-        ASSERT0(var_groups->getGroupNum() <= 1);
-        if (var_groups->getGroupNum() == 1) {
-            return var_groups->getIRGroup(0);
-        }
-        IRGroup * irgp = allocIRGroup();
-        IRGROUP_orgvar(irgp) = var;
-        var_groups->addGroup(0, irgp);
-        return irgp;
-    }
-
-    //Return the max group number in all the single groups.
-    UINT getMaxSingleGroupNum();
-
-    VarGroups * getAndGenVarFullGroups(Var const* v)
-    {
-        bool find = false;
-        VarGroups * var_groups = m_full_groups.get(v, &find);
-        if (!find) {
-            var_groups = allocVarGroups();
-            m_full_groups.set(v, var_groups);
-        }
-        return var_groups;
-    }
-    VarGroups * getAndGenVarPartialGroups(Var const* v)
-    {
-        bool find = false;
-        VarGroups * var_groups = m_part_groups.get(v, &find);
-        if (!find) {
-            var_groups = allocVarGroups();
-            m_part_groups.set(v, var_groups);
-        }
-        return var_groups;
-    }
-
-    VarGroups * getAndGenVarSingleGroups(Var const* v)
-    {
-        bool find = false;
-        VarGroups * var_groups = m_single_groups.get(v, &find);
-        if (!find) {
-            var_groups = allocVarGroups();
-            VARGROUPS_has_all(var_groups) = false;
-            m_single_groups.set(v, var_groups);
-        }
-        return var_groups;
-    }
-
-    //Get the best register to accomodate the specified range vector.
-    //rv: the input vector of ranges.
-    //ty: the required data type when find a available register.
-    //best_reg: the best register that can hold the 'rv'.
-    //reg_tab: used to store all the availble regs for the 'rv'.
-    //return true if any proper register can be found, or else, retun false.
-    bool getBestRegToAccommodateRange(RangeVec const& rv, Type const* ty,
-        OUT Reg & best_reg, MOD xcom::TTab<Reg> & reg_tab);
-
-    VarLifeTimeMgr & getVarLTMgr() { return m_var_ltmgr; }
-
-    //Return true if the 'v' has been promoted in full group mode.
-    bool isPromotedInFullGroup(Var const* v) const
-    { return m_vartab.find(v); }
-
-    bool perform(OptCtx & oc);
-
-    //Do the promote for the spill and reload IR for full group mode.
-    void promoteSpillReloadFullGroup();
-
-    //Do the promote for the spill and reload IR for partial group mode.
-    void promoteSpillReloadPartialGroup();
-
-    //Do the promote for the spill and reload IR for single group mode.
-    void promoteSpillReloadSingleGroup();
-
-    //Promote the spill reload for the specified group.
-    //gp: the group to be promoted.
-    //remove_spill: a flag to indicate the spill IR is removed or not.
-    void promoteSpillReloadForGroup(IRGroup * gp, bool remove_spill);
-
-    //Promote the reload IR by a specifed register.
-    //curir: the reload IR to be promoted.
-    //r: the register can be used to do the promotion.
-    //pr:the PRNO which assigned with the register 'r'.
-    void promoteReloadOpByReg(IR * curir, Reg r, PRNO pr);
-
-    //Promote the spill IR by a specifed register.
-    //curir: the spill IR to be promoted.
-    //r: the register can be used to do the promotion.
-    //pr:the PRNO which assigned with the register 'r'.
-    //remove: a flag to indicate the spill IR is removed or not.
-    void promoteSpillOpByReg(IR * curir, Reg r, PRNO pr, bool remove);
-
-    //Record the callee register.
-    void recordCallee(Reg r)
-    {
-        ASSERT0(r != REG_UNDEF);
-        if (!m_rsimpl.isCallee(r)) { return; }
-        RegSet & calleeset = m_rsimpl.getUsedCallee();
-        if (calleeset.is_contain(r)) { return; }
-        m_rsimpl.recordUsedCallee(r);
-    }
-
-    //Removed the unused spill reload IR.
-    void removeUnusedIR();
-
-    //Rename the var of IR for the var liftime computation.
-    void renameIRVar();
-
-    //Recover the var of IR.
-    void revertIRVar();
-
-    //Set the group mode.
-    void setGroupMode(GROUP_MODE mode) { m_mode = mode; }
-
-    //Sort the groups.
-    void sortFullGroup();
-    void sortPartialGroup();
-    void sortSingleGroup(UINT id);
-
-    //Try to assign a register for a group.
-    //vid: the group id.
-    //irvec: the group of spill reload IR.
-    //reg_tab: used to store all the availble regs for a group.
-    //return the best suitable register for the group.
-    Reg tryAssignRegForGroup(UINT vid, IRVec const* irvec,
-        MOD xcom::TTab<Reg> & reg_tab);
-};
-//END SpillReloadPromote
-
-
 typedef xcom::TMap<Type const*, Var *> Ty2Var;
 
 //
@@ -1491,6 +1119,12 @@ public:
     //as IR simplification, calls this function.
     PRNO buildPrnoPreAssigned(Type const* type, Reg reg);
 
+    //Build the MOV IR inserted by register allocation.
+    IR * buildMove(PRNO to, PRNO from, Type const* fromty, Type const* toty);
+
+    //Build the RHS of MOV IR inserted by register allocation.
+    virtual IR * buildMoveRHS(PRNO pr, Type const* ty) const;
+
     virtual IR * buildReload(PRNO prno, Var * spill_loc, Type const* ty);
     virtual IR * buildRemat(PRNO prno, RematCtx const& rematctx,
                             Type const* ty);
@@ -1530,6 +1164,7 @@ public:
     void dumpRegLTOverview() const;
     void dumpBBListWithReg() const;
     void dumpReg2LT(Pos start, Pos end, bool open_range = false) const;
+    void dumpPosGapIRStatistics() const;
 
     void destroyLocalUsage();
     void destroy();
@@ -1549,6 +1184,9 @@ public:
     //Normally, it is the entry BB of the CFG.
     virtual IRBB * getCalleeSpilledBB() const
     { return m_rg->getCFG()->getEntry(); }
+
+    //Get the source pr of MOV IR inserted by register allocation.
+    virtual IR * getMoveSrcPr(IR const* mov) const;
 
     //Construct a name for Var that will lived in Region.
     CHAR const* genFuncLevelNewVarName(OUT xcom::StrBuf & name);
@@ -1779,10 +1417,10 @@ public:
     virtual bool isRematLikeOp(IR const* ir) const
     {
         if (!ir->is_stpr()) { return false; }
-        if (!ir->getRHS()->is_lda() || !ir->getRHS()->is_const()) {
-            return false;
-        }
-        return true;
+        IR const* rhs = ir->getRHS();
+        ASSERT0(rhs);
+        if (rhs->is_lda() || rhs->is_const()) { return true; }
+        return false;
     }
     bool isReloadOp(IR const* ir) const
     { return m_reload_tab.find(const_cast<IR*>(ir)); }
@@ -1887,8 +1525,6 @@ public:
     virtual bool perform(OptCtx & oc);
     virtual bool performLsraImpl(OptCtx & oc);
 
-    bool promoteSpillReload(OptCtx & oc, RegSetImpl & rsimpl);
-
     void recalculateSSA(OptCtx & oc) const;
 
     //Removed the fake-use IR inserted before the LSRA.
@@ -1907,9 +1543,6 @@ public:
 
     //Reset all resource before allocation.
     void reset();
-
-    //Save the map of reg and it's corresponded lifetime.
-    void generateRegLifeTime(OptCtx & oc);
 
     void setApplyToRegion(bool doit) { m_is_apply_to_region = doit; }
     void setPreAssignedReg(PRNO prno, Reg r)

@@ -342,7 +342,8 @@ bool verifyShift(IR const* ir, Region const* rg)
     //ASSERT0(ir->is_int()); //the result may be integer and vector type.
     //the first operand may be integer and vector type.
     //ASSERT0(BIN_opnd0(ir)->is_int());
-    ASSERT0(BIN_opnd1(ir)->is_int());
+    ASSERT0(d->is_vector() ? d->getVectorElemDType() != D_UNDEF :
+            BIN_opnd1(ir)->is_int());
 
     ASSERT0(BIN_opnd0(ir)->is_single());
     ASSERT0(BIN_opnd1(ir)->is_single());
@@ -758,6 +759,151 @@ bool verifyAtomInc(IR const* ir, Region const* rg)
         }
     }
     return true;
+}
+
+
+//Ensure that each IR in ir_list must be allocated in current region.
+//NOTE: the function usually is called before IRBB construction.
+bool verifyIROwnership(Region const* rg)
+{
+    if (rg->getIRList() != nullptr) {
+        for (IR const* ir = rg->getIRList();
+             ir != nullptr; ir = ir->get_next()) {
+            ASSERTN(rg->getIR(ir->id()) == ir,
+                    ("ir id:%d is not allocated in region %s",
+                     rg->getRegionName()));
+        }
+        return true;
+    }
+    for (IRBB * bb = rg->getBBList()->get_head();
+         bb != nullptr; bb = rg->getBBList()->get_next()) {
+        for (IR const* ir = bb->getIRList().get_head();
+             ir != nullptr; ir = bb->getIRList().get_next()) {
+            ASSERTN(rg->getIR(ir->id()) == ir,
+                    ("ir id:%d is not allocated in region %s",
+                     rg->getRegionName()));
+        }
+    }
+    return true;
+}
+
+
+class VerifyIRAttrCtx {
+    COPY_CONSTRUCTOR(VerifyIRAttrCtx);
+public:
+    xcom::TTab<MD const*> md_has_def;
+    Region const* rg;
+    MDSystem const* mdsys;
+public:
+    VerifyIRAttrCtx(Region const* r) { rg = r; mdsys = rg->getMDSystem(); }
+};
+
+
+static void collectMDDefSitutation(
+    OUT VerifyIRAttrCtx & ctx, IR const* ir)
+{
+    //MustRef
+    MD const* must = ir->getMustRef();
+    if (must != nullptr && must->is_exact()) {
+        //Only collect exact MD to do verification to avoid reporting the
+        //error that might not happen.
+        ctx.md_has_def.append(must);
+    }
+
+    //MayRef
+    MDSet const* may = ir->getMayRef();
+    if (may == nullptr) { return; }
+    MDSetIter iter;
+    for (BSIdx i = may->get_first(&iter);
+         i != BS_UNDEF; i = may->get_next(i, &iter)) {
+        MD const* x = ctx.mdsys->getMD((MDIdx)i);
+        ASSERT0(x);
+        if (x->is_exact()) {
+            //Only collect exact MD to do verification to avoid reporting the
+            //error that might not happen.
+            ctx.md_has_def.append(x);
+        }
+    }
+}
+
+
+static bool verifyReadOnly(VerifyIRAttrCtx const& ctx, IR const* ir)
+{
+    if (!ir->isReadOnly()) { return true; }
+    MD const* must = ir->getMustRef();
+    if (must != nullptr) {
+        ASSERTN(!ctx.md_has_def.find(must), ("can not be readonly"));
+    }
+
+    //CASE: Should not verify readonly attr via MayDef set, because
+    //MayDef set may contain delagate MD whose the data-size is far
+    //larger than 'ir'.
+    //--
+    //MDSet const* may = ir->getMayRef();
+    //if (may == nullptr) { return true; }
+    //MDSetIter iter;
+    //for (BSIdx i = may->get_first(&iter);
+    //     i != BS_UNDEF; i = may->get_next(i, &iter)) {
+    //    MD const* x = ctx.mdsys->getMD((MDIdx)i);
+    //    ASSERTN(!ctx.md_has_def.find(x), ("can not be readonly"));
+    //}
+    //--
+    return true;
+}
+
+
+static bool verifyIRAttrImpl(VerifyIRAttrCtx const& ctx, IR const* ir)
+{
+    ASSERT0(ir);
+    ConstIRIter it;
+    for (IR const* t = xoc::iterInitC(ir, it, false);
+         t != nullptr; t = xoc::iterNextC(it, true)) {
+        verifyReadOnly(ctx, t);
+    }
+    return true;
+}
+
+
+static bool verifyIRAttrForIRList(Region const* rg)
+{
+    VerifyIRAttrCtx ctx(rg);
+    for (IR const* ir = rg->getIRList() ; ir != nullptr; ir = ir->get_next()) {
+        collectMDDefSitutation(ctx, ir);
+    }
+    for (IR const* ir = rg->getIRList() ; ir != nullptr; ir = ir->get_next()) {
+        verifyIRAttrImpl(ctx, ir);
+    }
+    return true;
+}
+
+
+static bool verifyIRAttrForBBList(Region const* rg)
+{
+    VerifyIRAttrCtx ctx(rg);
+    for (IRBB * bb = rg->getBBList()->get_head();
+         bb != nullptr; bb = rg->getBBList()->get_next()) {
+        for (IR const* ir = bb->getIRList().get_head();
+             ir != nullptr; ir = bb->getIRList().get_next()) {
+            collectMDDefSitutation(ctx, ir);
+        }
+    }
+    for (IRBB * bb = rg->getBBList()->get_head();
+         bb != nullptr; bb = rg->getBBList()->get_next()) {
+        for (IR const* ir = bb->getIRList().get_head();
+             ir != nullptr; ir = bb->getIRList().get_next()) {
+            verifyIRAttrImpl(ctx, ir);
+        }
+    }
+    return true;
+}
+
+
+bool verifyIRAttr(Region const* rg)
+{
+    if (rg->getIRList() != nullptr) {
+        return verifyIRAttrForIRList(rg);
+    }
+    return verifyIRAttrForBBList(rg);
 }
 
 } //namespace xoc

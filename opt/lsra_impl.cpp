@@ -541,9 +541,9 @@ bool LatchBBReorder::isBBReorderRequired(MOD IRBB * bb)
 
         ASSERT0(m_impl.getRA().isMoveOp(ir));
         ASSERT0(ir->isWritePR());
-        ASSERT0(ir->getRHS()->isReadPR());
+        ASSERT0(m_impl.getRA().getMoveSrcPr(ir)->isReadPR());
 
-        PRNO use_prno = ir->getRHS()->getPrno();
+        PRNO use_prno = m_impl.getRA().getMoveSrcPr(ir)->getPrno();
         PRNO def_prno = ir->getPrno();
         ASSERT0(use_prno != PRNO_UNDEF);
         ASSERT0(def_prno != PRNO_UNDEF);
@@ -591,7 +591,7 @@ IR * LatchBBReorder::buildCopyFromPRtoTmp(PRNO prno, Type const* ty)
     PRNO tmpprno = getTmpPrno(ty);
     IR * copy = nullptr;
     if (tmpprno != PRNO_UNDEF) {
-        copy = m_irmgr->buildMove(tmpprno, prno, ty);
+        copy = m_impl.getRA().buildMove(tmpprno, prno, ty, ty);
         m_impl.getRA().setMove(copy);
         return copy;
     }
@@ -609,7 +609,7 @@ IR * LatchBBReorder::buildCopyFromTmptoPR(PRNO prno, Type const* ty)
     PRNO tmpprno = getTmpPrno(ty);
     IR * copy = nullptr;
     if (tmpprno != PRNO_UNDEF) {
-        copy = m_irmgr->buildMove(prno, tmpprno, ty);
+        copy = m_impl.getRA().buildMove(prno, tmpprno, ty, ty);
         m_impl.getRA().setMove(copy);
         return copy;
     }
@@ -701,7 +701,8 @@ void LatchBBReorder::doCyclicMoveReorder(MOD IRBB * bb)
         if (is_new_group) {
             //Process the start of new group, we have to move the data of 'r1'
             //into temp location.
-            PRNO src_prno_with_r1 = m_phyreg2defop[r]->getRHS()->getPrno();
+            PRNO src_prno_with_r1 =
+                m_impl.getRA().getMoveSrcPr(m_phyreg2defop[r])->getPrno();
             Type const* ty = m_phyreg2defop[r]->getType();
 
             //Build the new copy IR, copy data from the register 'r1' to the
@@ -2757,10 +2758,17 @@ void LSRAImpl::insertReloadBefore(IR * reload, IR const* marker)
 IR * LSRAImpl::insertMove(PRNO from, PRNO to, Type const* fromty,
                           Type const* toty, IRBB * bb)
 {
-    IR * mv = m_irmgr->buildMove(to, from, toty, fromty);
+    IR * mv = nullptr;
+    if (toty->isPointer() || fromty->isPointer()) {
+        //If the type is pointer, use the type of target machine register
+        //instead.
+        Type const* ty = m_tm->getTargMachRegisterType();
+        mv = getRA().buildMove(to, from, ty, ty);
+    } else {
+        mv = getRA().buildMove(to, from, toty, fromty);
+    }
     ASSERT0(m_rg->getMDMgr());
-    m_rg->getMDMgr()->allocRef(mv->getRHS());
-    m_rg->getMDMgr()->allocRef(mv);
+    m_rg->getMDMgr()->allocRefForIRTree(mv, false);
     m_ra.setMove(mv);
     bb->getIRList().append_tail_ex(mv);
     return mv;

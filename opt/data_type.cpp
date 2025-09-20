@@ -50,6 +50,8 @@ TypeDesc const g_type_desc[] = {
     {D_U64, "u64", 64},
     {D_U128, "u128", 128},
 
+    {D_F8_E4M3, "f8_e4m3", 8},
+    {D_F8_E5M2, "f8_e5m2", 8},
     {D_BF16, "bf16", 16}, //bfloat point 16 bits
     {D_F16, "f16", 16}, //float point 16 bits
     {D_F32, "f32", 32}, //float point 32 bits
@@ -621,6 +623,8 @@ TypeMgr::TypeMgr(RegionMgr * rm)
     m_u32 = getSimplexType(D_U32);
     m_u64 = getSimplexType(D_U64);
     m_u128 = getSimplexType(D_U128);
+    m_f8e4m3 = getSimplexType(D_F8_E4M3);
+    m_f8e5m2 = getSimplexType(D_F8_E5M2);
     m_bf16 = getSimplexType(D_BF16);
     m_f16 = getSimplexType(D_F16);
     m_f32 = getSimplexType(D_F32);

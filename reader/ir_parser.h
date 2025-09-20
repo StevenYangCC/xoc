@@ -218,7 +218,7 @@ protected:
     bool checkLabel(IR const* irlist, ParseCtx const& ctx);
     //Return false if there is error occur.
     bool constructSSAIfNeed(ParseCtx * ctx);
-    void copyProp(IR * ir, PropertySet & ps, ParseCtx * ctx);
+    void copyProp(IR * ir, PropertySet const& ps, ParseCtx * ctx);
 
     bool declareType(ParseCtx * ctx);
     bool declareVarProperty(Var * var, ParseCtx * ctx);
@@ -278,6 +278,7 @@ protected:
     bool parseProperty(PropertySet & ps, ParseCtx * ctx);
     bool parseCvt(ParseCtx * ctx);
     bool parseCase(ParseCtx * ctx);
+    bool parseDummyUse(ParseCtx * ctx);
     bool parseId(ParseCtx * ctx);
     bool parseLda(ParseCtx * ctx);
     bool parseArrayDimension(List<TMWORD> & elem_dim);
@@ -285,7 +286,17 @@ protected:
     bool parseILd(ParseCtx * ctx);
     bool parseSelect(ParseCtx * ctx);
     bool parseIStore(ParseCtx * ctx);
-    bool parseCallAndICall(bool is_call, ParseCtx * ctx);
+    bool parseCall(ParseCtx * ctx);
+    bool parseCalleeOfICall(ParseCtx * ctx, OUT IR ** callee_exp);
+    bool parseDummyuseList(ParseCtx * ctx, OUT IR ** dummyuse_list);
+    bool parseCallArgList(ParseCtx * ctx, OUT IR ** arg_list);
+    bool parseICallWithRetVal(
+        PropertySet const& ps, PRNO return_prno, Type const* return_ty,
+        ParseCtx * ctx);
+    bool parseICallWithoutRetVal(
+        PropertySet const& ps, PRNO callee_exp_prno, Type const* callee_exp_ty,
+        ParseCtx * ctx);
+    bool parseICall(ParseCtx * ctx);
     bool parseGoto(ParseCtx * ctx);
     bool parseIGoto(ParseCtx * ctx);
     bool parseDoWhile(ParseCtx * ctx);

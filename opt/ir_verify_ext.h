@@ -35,6 +35,8 @@ bool verifyVST(IR const* ir, Region const* rg);
 bool verifyVIST(IR const* ir, Region const* rg);
 bool verifyVSTPR(IR const* ir, Region const* rg);
 bool verifyBROADCAST(IR const* ir, Region const* rg);
+bool verifyMaskOp(IR const* ir, Region const* rg);
+bool verifyMaskSelectToRes(IR const* ir, Region const* rg);
 
 } //namespace xoc
 #endif

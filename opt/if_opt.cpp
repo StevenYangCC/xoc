@@ -131,7 +131,7 @@ static IF_TYPE get_simple_if_node_type(IRCFG * cfg, IRBB * bb)
 
 
 //Perform if optimization
-bool IRCFG::if_opt(IRBB * bb)
+bool IRCFG::doIFOpt(IRBB * bb)
 {
     IF_TYPE ift = NOT_SIMP_IF;
     if (NOT_SIMP_IF != (ift = get_simple_if_node_type(this, bb))) {

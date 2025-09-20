@@ -1029,13 +1029,14 @@ void DeadCodeElim::addEffectIRAndBB(
         ASSERT0(ir->is_stmt());
         ASSERTN(!dcectx.isExcluded(ir), ("effect ir should not be in list"));
         dcectx.addEffectStmt(ir);
+        ASSERT0(ir->getBB());
         dcectx.addEffectBB(ir->getBB());
     }
 }
 
 
 bool DeadCodeElim::performByEffectIRList(
-    ConstIRList & efflist, OUT DCECtx & dcectx, OUT bool remove_branch_stmt)
+    MOD ConstIRList & efflist, OUT DCECtx & dcectx, OUT bool remove_branch_stmt)
 {
     addEffectIRAndBB(efflist, dcectx);
     return iterCollectAndElim(efflist, dcectx, remove_branch_stmt);

@@ -1420,7 +1420,7 @@ public:
                 }
                 mc = C_next(mc);
             }
-            if (mc == nullptr) return nullptr;
+            if (mc == nullptr) { return nullptr; }
             if (C_next(mc) != nullptr) {
                 C_prev(C_next(mc)) = c;
                 C_next(c) = C_next(mc);

@@ -33,7 +33,17 @@ author: Su Zhenyu
 
 namespace mach {
 
-#define MI_lab(mi) (((LabelMInst*)mi)->m_lab)
+//This class represents a jump MI generated from a IR_CALL.
+#define CALLMI_var(mi) (((CallMInst*)mi)->m_called_var)
+class CallMInst : public MInst {
+    COPY_CONSTRUCTOR(CallMInst);
+public:
+    //Record the called function.
+    xoc::Var const* m_called_var;
+};
+
+
+#define LABMI_lab(mi) (((LabelMInst*)mi)->m_lab)
 class LabelMInst : public MInst {
     COPY_CONSTRUCTOR(LabelMInst);
 public:
@@ -41,7 +51,7 @@ public:
 };
 
 
-#define MI_var(mi) (((MemAccMInst*)mi)->m_var)
+#define MEMACCMI_var(mi) (((MemAccMInst*)mi)->m_var)
 class MemAccMInst : public MInst {
     COPY_CONSTRUCTOR(MemAccMInst);
 public:
@@ -49,65 +59,63 @@ public:
 };
 
 //The following are MI instructions related to DWARF
-//This class is a base class. It contains a union representing either
-//an offset or register2. The "2" signifies that in the future,
-//when derived classes inherit from it, they will have their own register,
-//which may cause repetition. For example,
-//when MCCFICOffsetIns inherits from MCCCFIInst,
-//it will have its own m_register and m_offset.
+//This class serves as a base class. It is designed to be extensible
+//to accommodate future requirements.
 class MCCCFIInst : public MInst {
     COPY_CONSTRUCTOR(MCCCFIInst);
-public:
-    union {
-        INT m_offset;
-        UINT m_register2;
-    };
 };
 
 //.cfi_def_cfa defines a rule for computing CFA as: take address from
 //Register and add Offset to it.
-#define MI_cfi_def_cfa_offset(mi)   (((MCCCFIDefCfaIns*)(mi))->m_offset)
-#define MI_cfi_def_cfa_register(mi) (((MCCCFIDefCfaIns*)(mi))->m_register)
+#define CFIDEFCFAMI_offset(mi)   (((MCCCFIDefCfaIns*)(mi))->m_offset)
+#define CFIDEFCFAMI_register(mi) (((MCCCFIDefCfaIns*)(mi))->m_register)
 class MCCCFIDefCfaIns : public MCCCFIInst {
     COPY_CONSTRUCTOR(MCCCFIDefCfaIns);
 public:
     UINT m_register;
+    UINT m_offset;
 };
 
 //.cfi_same_value Current value of Register is the same as in the
 //previous frame. I.e., no restoration is needed.
-#define MI_cfi_samevalue_register(mi) \
-    (((MCCCFISameValueIns*)(mi))->m_register2)
+#define CFISAMEVALMI_register(mi) \
+    (((MCCCFISameValueIns*)(mi))->m_register)
 class MCCCFISameValueIns : public MCCCFIInst {
     COPY_CONSTRUCTOR(MCCCFISameValueIns);
+public:
+    UINT m_register;
 };
 
 //.cfi_offset Previous value of Register is saved at offset Offset
 //from CFA.
-#define MI_cfi_offset_offset(mi)   (((MCCFICOffsetIns*)(mi))->m_offset)
-#define MI_cfi_offset_register(mi) (((MCCFICOffsetIns*)(mi))->m_register)
+#define CFIOFFSETMI_offset(mi)   (((MCCFICOffsetIns*)(mi))->m_offset)
+#define CFIOFFSETMI_register(mi) (((MCCFICOffsetIns*)(mi))->m_register)
 class MCCFICOffsetIns : public MCCCFIInst {
     COPY_CONSTRUCTOR(MCCFICOffsetIns);
 public:
     UINT m_register;
+    UINT m_offset;
 };
 
 //.cfi_restore says that the rule for Register is now the same as it
 //was at the beginning of the function, after all initial instructions added
 //by .cfi_startproc were executed.
-#define MI_cfi_restore_register(mi) \
-    (((MCCCFIRestoreInst*)(mi))->m_register2)
+#define CFIRESTOREMI_register(mi) (((MCCCFIRestoreInst*)(mi))->m_register)
 class MCCCFIRestoreInst : public MCCCFIInst {
     COPY_CONSTRUCTOR(MCCCFIRestoreInst);
+public:
+    UINT m_register;
 };
 
 //.cfi_def_cfa_offset modifies a rule for computing CFA. Register
 //remains the same, but offset is new. Note that it is the absolute offset
 //that will be added to a defined register to the compute CFA address.
-#define MI_cfi_def_cfa_offset_offset(mi) \
+#define CFIDEFCFAOFFSETMI_offset(mi) \
     (((MCCFIDefCfaOffsetInst*)(mi))->m_offset)
 class MCCFIDefCfaOffsetInst : public MCCCFIInst {
     COPY_CONSTRUCTOR(MCCFIDefCfaOffsetInst);
+public:
+    UINT m_offset;
 };
 
 } //namespace

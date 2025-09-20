@@ -119,7 +119,7 @@ void Sym2Regions::add(Sym const* sym, Region * rg)
 //
 //START RegionMgr
 //
-RegionMgr::RegionMgr() : m_type_mgr(this)
+RegionMgr::RegionMgr()
 {
     #ifdef _DEBUG_
     m_num_allocated = 0;
@@ -136,6 +136,7 @@ RegionMgr::RegionMgr() : m_type_mgr(this)
     m_targinfo = nullptr;
     m_program = nullptr;
     m_dm = nullptr;
+    m_type_mgr = nullptr;
     m_pool = smpoolCreate(64, MEM_COMM);
     m_logmgr = new LogMgr();
     m_targinfo_mgr = nullptr;
@@ -191,6 +192,10 @@ RegionMgr::~RegionMgr()
         m_targinfo_mgr = nullptr;
     }
     #endif
+    if (m_type_mgr != nullptr) {
+        delete m_type_mgr;
+        m_type_mgr = nullptr;
+    }
 }
 
 
@@ -308,6 +313,12 @@ void RegionMgr::registerGlobalMD()
         }
         m_md_sys->registerMD(md);
     }
+}
+
+
+TypeMgr * RegionMgr::allocTypeMgr()
+{
+    return new xoc::TypeMgr(this);
 }
 
 

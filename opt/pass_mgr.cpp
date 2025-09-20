@@ -136,7 +136,11 @@ Pass * PassMgr::allocBrCondProp()
 
 Pass * PassMgr::allocGCSE()
 {
+    #ifdef FOR_IP
     return new GCSE(m_rg, (GVN*)registerPass(PASS_GVN));
+    #else
+    return nullptr;
+    #endif
 }
 
 
@@ -314,80 +318,9 @@ Pass * PassMgr::allocLinearScanRA()
 }
 
 
-Pass * PassMgr::allocPrologueEpilogue()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocGPAdjustment()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocBROpt()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocDynamicStack()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocIRReloc()
-{
-    #ifdef REF_TARGMACH_INFO
-    return new IRRelocMgr(m_rg);
-    #else
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-    #endif
-}
-
-
-Pass * PassMgr::allocArgPasser()
-{
-    #ifdef REF_TARGMACH_INFO
-    return new ArgPasser(m_rg);
-    #else
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-    #endif
-}
-
-
-Pass * PassMgr::allocMemCheck()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocKernelAdjustment()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
 Pass * PassMgr::allocTargInfoHandler()
 {
     return new TargInfoHandler(m_rg);
-}
-
-
-Pass * PassMgr::allocInsertVecSet()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
 }
 
 
@@ -456,7 +389,11 @@ Pass * PassMgr::allocScalarOpt()
 
 Pass * PassMgr::allocRegSSAMgr()
 {
+    #ifdef FOR_IP
     return new RegSSAMgr(m_rg);
+    #else
+    return nullptr;
+    #endif
 }
 
 
@@ -496,13 +433,6 @@ Pass * PassMgr::allocInsertCvt()
 }
 
 
-Pass * PassMgr::allocInstSched()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
 Pass * PassMgr::allocCalcDerivative()
 {
     #ifdef FOR_IP
@@ -510,19 +440,6 @@ Pass * PassMgr::allocCalcDerivative()
     #else
     return nullptr;
     #endif
-}
-
-
-Pass * PassMgr::allocIRFusion()
-{
-    ASSERTN(0, ("Target Dependent Code"));
-    return nullptr;
-}
-
-
-Pass * PassMgr::allocStackColoring()
-{
-    return new StackColoring(m_rg);
 }
 
 
@@ -679,38 +596,8 @@ Pass * PassMgr::allocPass(PASS_TYPE passty)
     case PASS_LOOP_DEP_ANA:
         pass = allocLoopDepAna();
         break;
-    case PASS_PROLOGUE_EPILOGUE:
-        pass = allocPrologueEpilogue();
-        break;
-    case PASS_GP_ADJUSTMENT:
-        pass = allocGPAdjustment();
-        break;
-    case PASS_BR_OPT:
-        pass = allocBROpt();
-        break;
-    case PASS_DYNAMIC_STACK:
-        pass = allocDynamicStack();
-        break;
-    case PASS_IRRELOC:
-        pass = allocIRReloc();
-        break;
-    case PASS_ARGPASSER:
-        pass = allocArgPasser();
-        break;
-    case PASS_MEMCHECK:
-        pass = allocMemCheck();
-        break;
-    case PASS_KERNEL_ADJUSTMENT:
-        pass = allocKernelAdjustment();
-        break;
     case PASS_TARGINFO_HANDLER:
         pass = allocTargInfoHandler();
-        break;
-    case PASS_IRFUSION:
-        pass = allocIRFusion();
-        break;
-    case PASS_STACK_COLORING:
-        pass = allocStackColoring();
         break;
     default:
         pass = allocExtPass(passty);

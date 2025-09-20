@@ -58,8 +58,6 @@ protected:
     PassTab m_registered_pass;
 protected:
     virtual Pass * allocAA();
-    virtual Pass * allocArgPasser();
-    virtual Pass * allocBROpt();
     virtual Pass * allocCalcDerivative();
     virtual Pass * allocCallGraph();
     virtual Pass * allocCCP();
@@ -67,11 +65,9 @@ protected:
     virtual Pass * allocCFG();
     virtual Pass * allocCfsMgr();
     virtual Pass * allocCopyProp();
-    virtual Pass * allocBrCondProp();
     virtual Pass * allocDCE();
     virtual Pass * allocDSE();
     virtual Pass * allocDUMgr();
-    virtual Pass * allocDynamicStack();
     virtual Pass * allocExprTab();
     virtual Pass * allocExtPass(PASS_TYPE passty)
     {
@@ -80,23 +76,17 @@ protected:
         return nullptr;
     }
     virtual Pass * allocGCSE();
-    virtual Pass * allocGPAdjustment();
+    virtual Pass * allocBrCondProp();
     virtual Pass * allocGSCC();
     virtual Pass * allocGVN();
-    virtual Pass * allocStackColoring();
     virtual Pass * allocInferType();
     virtual Pass * allocInliner();
     virtual Pass * allocInsertCvt();
-    virtual Pass * allocInsertVecSet();
-    virtual Pass * allocInstSched();
     virtual Pass * allocInvertBrTgt();
     virtual Pass * allocIPA();
-    virtual Pass * allocIRFusion();
     virtual Pass * allocIRMgr();
-    virtual Pass * allocIRReloc();
     virtual Pass * allocIRSimp();
     virtual Pass * allocIVR();
-    virtual Pass * allocKernelAdjustment();
     virtual Pass * allocLCSE();
     virtual Pass * allocLFTR();
     virtual Pass * allocLICM();
@@ -104,15 +94,13 @@ protected:
     virtual Pass * allocLivenessMgr();
     virtual Pass * allocLoopCvt();
     virtual Pass * allocLoopDepAna();
+    virtual Pass * allocRegSSAMgr();
     virtual Pass * allocPRLivenessMgr();
     virtual Pass * allocMDLivenessMgr();
     virtual Pass * allocMDSSALiveMgr();
     virtual Pass * allocMDSSAMgr();
-    virtual Pass * allocRegSSAMgr();
-    virtual Pass * allocMemCheck();
     virtual Pass * allocMultiResConvert();
     virtual Pass * allocPRE();
-    virtual Pass * allocPrologueEpilogue();
     virtual Pass * allocPRSSAMgr();
     virtual Pass * allocRCE();
     virtual Pass * allocRefine();
@@ -123,7 +111,6 @@ protected:
     virtual Pass * allocVectorization();
     virtual Pass * allocAlgeReasscociate();
     virtual Pass * allocVRP();
-
 protected:
     void checkAndRecomputeDUChain(
         OptCtx * oc, DUMgr * dumgr, BitSet const& opts);

@@ -44,8 +44,8 @@ void setLineNum(IR * ir, UINT lineno, Region * rg, LANG_TYPE language)
     ASSERT0(dbx_mgr);
     if (IR_ai(ir) == nullptr) {
         IR_ai(ir) = rg->allocAIContainer();
-        da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                          rg->getCommPool());
+        da = (DbxAttachInfo*)smpoolMalloc(
+            sizeof(DbxAttachInfo), rg->getCommPool());
         ASSERT0(da);
 
         //This is the memory allocation for the various attributes of dbx,
@@ -56,8 +56,8 @@ void setLineNum(IR * ir, UINT lineno, Region * rg, LANG_TYPE language)
         IR_ai(ir)->init();
         da = (DbxAttachInfo*)IR_ai(ir)->get(AI_DBX);
         if (da == nullptr) {
-            da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                              rg->getCommPool());
+            da = (DbxAttachInfo*)smpoolMalloc(
+                sizeof(DbxAttachInfo), rg->getCommPool());
             ASSERT0(da);
 
             //This is the memory allocation for the various attributes of dbx,
@@ -80,8 +80,8 @@ void setLoc(IR * ir, Region * rg, UINT lineno, UINT col,
     ASSERT0(dbx_mgr);
     if (IR_ai(ir) == nullptr) {
         IR_ai(ir) = rg->allocAIContainer();
-        da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                          rg->getCommPool());
+        da = (DbxAttachInfo*)smpoolMalloc(
+            sizeof(DbxAttachInfo), rg->getCommPool());
         ASSERT0(da);
 
         //This is the memory allocation for the various attributes of dbx,
@@ -92,8 +92,8 @@ void setLoc(IR * ir, Region * rg, UINT lineno, UINT col,
         IR_ai(ir)->init();
         da = (DbxAttachInfo*)IR_ai(ir)->get(AI_DBX);
         if (da == nullptr) {
-            da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                              rg->getCommPool());
+            da = (DbxAttachInfo*)smpoolMalloc(
+                sizeof(DbxAttachInfo), rg->getCommPool());
             ASSERT0(da);
 
             //This is the memory allocation for the various attributes of dbx,
@@ -187,8 +187,8 @@ void setDbx(IR * ir, Dbx * dbx, Region * rg)
         ir_da = (DbxAttachInfo*)ir->getAI()->get(AI_DBX);
     }
     if (ir_da == nullptr) {
-        ir_da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                              rg->getCommPool());
+        ir_da = (DbxAttachInfo*)smpoolMalloc(
+            sizeof(DbxAttachInfo), rg->getCommPool());
         ASSERT0(ir_da);
 
         //This is the memory allocation for the various attributes of dbx,
@@ -245,8 +245,8 @@ void copyDbx(IR * tgt, IR const* src, Region * rg)
         tgt_da = (DbxAttachInfo*)tgt->getAI()->get(AI_DBX);
     }
     if (tgt_da == nullptr) {
-        tgt_da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                              rg->getCommPool());
+        tgt_da = (DbxAttachInfo*)smpoolMalloc(
+            sizeof(DbxAttachInfo), rg->getCommPool());
         ASSERT0(tgt_da);
 
         //This is the memory allocation for the various attributes of dbx,
@@ -276,8 +276,8 @@ void copyDbx(IR * tgt, Dbx const* dbx, Region * rg)
         tgt_da = (DbxAttachInfo*)tgt->getAI()->get(AI_DBX);
     }
     if (tgt_da == nullptr) {
-        tgt_da = (DbxAttachInfo*)smpoolMalloc(sizeof(DbxAttachInfo),
-                                              rg->getCommPool());
+        tgt_da = (DbxAttachInfo*)smpoolMalloc(
+            sizeof(DbxAttachInfo), rg->getCommPool());
         ASSERT0(tgt_da);
 
         //This is the memory allocation for the various attributes of dbx,
@@ -298,6 +298,9 @@ Dbx * getDbx(IR const* ir)
 }
 
 
+//
+//START Dbx
+//
 void Dbx::init(DbxMgr * dbx_mgr)
 {
     ASSERT0(dbx_mgr);
@@ -363,8 +366,7 @@ void Dbx::setLine(LANG_TYPE lang, UINT32 line, DbxMgr * dbx_mgr)
 }
 
 
-void Dbx::setColOffset(LANG_TYPE lang, UINT32 col_offset,
-                       DbxMgr * dbx_mgr)
+void Dbx::setColOffset(LANG_TYPE lang, UINT32 col_offset, DbxMgr * dbx_mgr)
 {
     ASSERT0(dbx_mgr);
     m_debug_infos[DBXMGR_lang_info(dbx_mgr).getLangIndex(lang)].
@@ -372,8 +374,7 @@ void Dbx::setColOffset(LANG_TYPE lang, UINT32 col_offset,
 }
 
 
-void Dbx::setFileIndex(LANG_TYPE lang, UINT32 file_index,
-                       DbxMgr * dbx_mgr)
+void Dbx::setFileIndex(LANG_TYPE lang, UINT32 file_index, DbxMgr * dbx_mgr)
 {
     ASSERT0(dbx_mgr);
     m_debug_infos[DBXMGR_lang_info(dbx_mgr).getLangIndex(lang)].
@@ -387,6 +388,8 @@ void Dbx::setFlag(LANG_TYPE lang, UINT8 flag, DbxMgr * dbx_mgr)
     m_debug_infos[DBXMGR_lang_info(dbx_mgr).
         getLangIndex(lang)].m_flag = flag;
 }
+//END Dbx
+
 
 //
 //START LangInfo
@@ -409,6 +412,8 @@ UINT8 LangInfo::getLangNum() const
 {
     return m_frontend_lang_to_index.get_elem_count();
 }
+//END LangInfo
+
 
 //
 //START DbxMgr
@@ -451,8 +456,7 @@ Dbx::DebugInfo * DbxMgr::allocDbxInfos()
 {
     ASSERTN(m_pool != nullptr, ("pool does not initialized"));
     Dbx::DebugInfo * dbx_infos = (Dbx::DebugInfo*)(this->
-        xmalloc(sizeof(Dbx::DebugInfo) *
-        DbxMgr::m_lang_info.getLangNum()));
+        xmalloc(sizeof(Dbx::DebugInfo) * DbxMgr::m_lang_info.getLangNum()));
     ASSERT0(dbx_infos);
     return dbx_infos;
 }
@@ -512,7 +516,7 @@ xoc::Sym const* DbxMgr::getFileName(LANG_TYPE lang, UINT fileidx) const
             ("The number of supported languages has been exceeded."));
     ASSERTN(fileidx < MAX_FILE_INDEX,
             ("m_fi2fn may be better when using TMap compared to using"
-                " Vector if fileindex is sparse"));
+             " Vector if fileindex is sparse"));
     ASSERT0(m_lang2fi2fn.get(lang));
     return m_lang2fi2fn.get(lang)->get(fileidx);
 }

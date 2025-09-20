@@ -292,6 +292,8 @@ public:
     //IR may have an unique attach-info container.
     AIContainer * attach_info_container;
 public:
+    IR() {}
+
     //Calculate the accumulated offset value from the base of array.
     //e.g: For given array long long p[10][20],
     //the offset of p[i][j] can be computed by i*20 + j, and
@@ -1191,7 +1193,7 @@ public:
 
     //The function record the May-Reference MDSet of ir.
     //mds: record MayMDSet that has been hashed.
-    void setMayRef(MDSet const* mds, Region * rg)
+    void setMayRef(MDSet const* mds, Region const* rg)
     {
         ASSERT0(mds && !mds->is_empty());
         setRefMDSet(mds, rg);

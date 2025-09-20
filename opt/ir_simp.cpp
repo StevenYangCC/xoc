@@ -762,6 +762,14 @@ IR * IRSimp::simplifyDoLoopSelf(IR * ir, SimpCtx * ctx)
     //Use the option to inform the Region that BB list has to be rebuild
     //when function returned.
     SIMP_need_recon_bblist(ctx) = true;
+
+    LOOP_iv(ir) = nullptr;
+    LOOP_init(ir) = nullptr;
+    LOOP_step(ir) = nullptr;
+    LOOP_det(ir) = nullptr;
+    LOOP_body(ir) = nullptr;
+    ctx->tryInvalidInfoBeforeFreeIR(ir);
+    m_rg->freeIRTree(ir);
     return ret_list;
 }
 
@@ -1554,6 +1562,18 @@ static IR * simplifySubExpList(IR * ir, IRSimp * simp, SimpCtx * ctx)
 }
 
 
+UINT IRSimp::computeArrayElemByteSize(IR * ir, SimpCtx * ctx) const
+{
+    //By default, array element type should NOT be ANY.
+    //Because usually, we can not compute exact byte size if array element
+    //type is uncertain.
+    ASSERTN(ARR_elemtype(ir) && !ARR_elemtype(ir)->is_any(),
+            ("Target Dependent Code"));
+    UINT elemsize = m_tm->getByteSize(ARR_elemtype(ir));
+    return elemsize;
+}
+
+
 //Simplify array operator IR_ARRAY to a list of address computing expressions.
 //ir: the IR_ARRAY/IR_STARRAY that to be simplified.
 //Note the function does not free ir becase ir's Reference info and
@@ -1584,7 +1604,7 @@ IR * IRSimp::simplifyArrayAddrExp(IR * ir, SimpCtx * ctx)
     Dbx * subexpdbx = getDbx(ofst_exp);
 
     Type const* indextyid = m_rg->getTargetMachineArrayIndexType();
-    UINT elemsize = dm->getByteSize(ARR_elemtype(ir));
+    UINT elemsize = computeArrayElemByteSize(ir, ctx);
     if (elemsize != 1) {
         //e.g: short g[i], subexp is i*sizeof(short)
         ofst_exp = m_irmgr->buildBinaryOp(IR_MUL, indextyid, ofst_exp,
@@ -1888,7 +1908,7 @@ IR * IRSimp::simplifyRelationInDet(IR * ir, SimpCtx * ctx)
 //Return new generated expression's value.
 IR * IRSimp::simplifyJudgeDet(IR * ir, SimpCtx * ctx)
 {
-    if (ir == nullptr) return nullptr;
+    if (ir == nullptr) { return nullptr; }
     ASSERT0(ir->is_judge());
     ASSERT0(ir->is_single());
     switch (ir->getCode()) {
@@ -2816,13 +2836,14 @@ IR * IRSimp::simplifyStmt(IR * ir, SimpCtx * ctx)
     default:
         ret_list = simplifyExtStmt(ir, ctx);
     }
-    if (g_debug && dbx != nullptr) { copyDbx(ret_list, dbx, m_rg); }
-
+    if (dbx != nullptr && ret_list != nullptr) {
+        copyDbx(ret_list, dbx, m_rg);
+    }
     setParentPointerForIRList(ret_list);
     if (has_side_effect || is_no_move) {
         for (IR * t = ret_list; t != nullptr; t = t->get_next()) {
-            IR_has_sideeffect(t) = has_side_effect ?
-                                   true : t->hasSideEffect(false);
+            IR_has_sideeffect(t) =
+                has_side_effect ? true : t->hasSideEffect(false);
             IR_no_move(t) = is_no_move ? true : t->isNoMove(false);
         }
     }

@@ -268,6 +268,8 @@ bool IR::verify(Region const* rg) const
 bool IR::calcArrayOffset(TMWORD * ofst_val, TypeMgr * tm) const
 {
     if (!isArrayOp() || ARR_elem_num_buf(this) == nullptr) { return false; }
+    ASSERT0(ARR_elemtype(this));
+    if (ARR_elemtype(this)->is_any()) { return false; }
     TMWORD aggr = 0;
     TMWORD aggr_dim = 0;
     UINT dim = 0;
@@ -1266,7 +1268,7 @@ bool IR::hasMultiTarget() const
     case IR_IGOTO: {
         IR const* caselst = getCaseList();
         ASSERT0(caselst);
-        if (caselst->get_next() != nullptr) { return true; }
+        if (!caselst->is_single()) { return true; }
         return false;
     }
     default:;
@@ -1281,13 +1283,15 @@ bool IR::isReadOnly() const
     case IR_CALL: return CALL_is_readonly(this);
     case IR_ICALL: return ICALL_is_readonly(this);
     case IR_CVT: return CVT_exp(this)->isReadOnly();
-    case IR_LD:
-        if (LD_idinfo(this)->is_readonly() &&
-            !LD_idinfo(this)->is_volatile()) {
+    default: {
+        if (!hasIdinfo()) { return false; }
+        Var const* idinfo = getIdinfo();
+        ASSERT0(idinfo);
+        if (idinfo->is_readonly() && !idinfo->is_volatile()) {
             return true;
         }
         return false;
-    default:;
+    }
     }
     return false;
 }

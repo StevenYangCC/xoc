@@ -844,6 +844,7 @@ static void processClass(DexFile* pDexFile, D2Dpool* pool, char const* dexfilena
         g_do_call_graph = true;
         g_collect_debuginfo = true;
         rumgr = new DexRegionMgr();
+        rumgr->initTypeMgr();
         rumgr->initVarMgr();
         rumgr->init();
         if (g_logfile_name != nullptr) {

@@ -854,6 +854,28 @@ void af2i(IN CHAR * f, OUT BYTE * buf, UINT buflen, bool is_double)
 }
 
 
+//Returns the number of contiguous low bytes that are all 0xFF in the given v.
+//The v must be of the form: (1ULL << (n * 8)) - 1
+//For example: 0x00000000000000FF -> n = 1
+//             0x000000000000FFFF -> n = 2
+//             0x00000000FFFFFFFF -> n = 4
+//The return value of the function is the number of 0xFF, which is 'n' in the
+//above example. If v is not in this valid form, returns 0.
+UINT countTrailingFFBytes(ULONGLONG v)
+{
+    //if all 64 bits are set, it means all 8 bytes are preserved.
+    if (v == ~0ULL) { return 8; }
+
+    int n = 0;
+    while (v != 0) {
+        if ((v & 0xFF) != 0xFF) { return 0; }
+        v >>= 8;
+        n++;
+    }
+    return n;
+}
+
+
 //Compute the power of 2, return the result.
 //Note v must be power of 2.
 //e.g: given v is 64, return 16.

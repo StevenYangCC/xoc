@@ -243,6 +243,73 @@ public:
 };
 
 
+//This class represent operation that has a mask operand. Usually the operation
+//is used to describe selection operation in IR expression tree.
+//Generally, by given a full-size vector or tensor operation, using a mask
+//operand to select specific elements for processing.
+//e.g: The example demostrates that maskop selects element from the result
+//of 'add' according to '$mask'.
+//  stpr $res:vec<i32x32>
+//    maskop:vec<i32x32>
+//      add:vec<i32x32>
+//        $src1:vec<i32x32>
+//        $src2:vec<i32x32>
+//      $mask:<boolx32>
+//
+//Normal full-size operation.
+#define MASKOP_op(ir) MASKOP_kid(ir, 0)
+
+//Mask operand.
+#define MASKOP_mask(ir) MASKOP_kid(ir, 1)
+
+#define MASKOP_kid(ir, idx) \
+    (((CMaskOp*)ir)->opnd[CK_KID_IRC(ir, IR_MASK_OP, idx)])
+
+class CMaskOp : public IR {
+    COPY_CONSTRUCTOR(CMaskOp);
+public:
+    static BYTE const kid_map = 0x3;
+    static BYTE const kid_num = 2;
+    IR * opnd[kid_num];
+public:
+    static inline IR *& accKid(IR * ir, UINT idx)
+    { return MASKOP_kid(ir, idx); }
+};
+
+
+//This class represent operation that perform elements selection according to
+//a mask operand.
+//NOTE: the operation is always used to describe STMT.
+//This is used to describe specific selection operation, unlike MaskOp, it is
+//primarily used to describe masked-selection, and should be combined with
+//store-stmt to describe a masked-store-operation.
+//e.g: the example stores sparse-data to 'res' according to '$mask'.
+//  st:vec<i32x32> res =
+//    maskselect:vec<i32x32>
+//      ld:vec<i32x32> data;
+//      $mask:<boolx32>
+
+//Normal full-size operation.
+#define MASKSELECTTORES_op(ir) MASKSELECTTORES_kid(ir, 0)
+
+//Mask operand.
+#define MASKSELECTTORES_mask(ir) MASKSELECTTORES_kid(ir, 1)
+
+#define MASKSELECTTORES_kid(ir, idx) \
+    (((CMaskSelectToRes*)ir)->opnd[CK_KID_IRC(ir, IR_MASK_SELECT_TO_RES, idx)])
+
+class CMaskSelectToRes : public IR {
+    COPY_CONSTRUCTOR(CMaskSelectToRes);
+public:
+    static BYTE const kid_map = 0x3;
+    static BYTE const kid_num = 2;
+    IR * opnd[kid_num];
+public:
+    static inline IR *& accKid(IR * ir, UINT idx)
+    { return MASKSELECTTORES_kid(ir, idx); }
+};
+
+
 #ifdef REF_TARGMACH_INFO
 
 class RegPhi;

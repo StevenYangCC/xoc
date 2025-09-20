@@ -40,39 +40,31 @@ namespace xoc {
 
 class GCSE;
 
+//Temporary Graph. 
 class TG : public xcom::DGraph {
+    COPY_CONSTRUCTOR(TG);
+protected:
     Region * m_rg;
 protected:
-    virtual void * cloneEdgeInfo(xcom::Edge *)
-    { return nullptr; }
-    virtual void * cloneVertexInfo(xcom::Vertex *)
-    { return nullptr; }
+    virtual void * cloneEdgeInfo(xcom::Edge *) { return nullptr; }
+    virtual void * cloneVertexInfo(xcom::Vertex *) { return nullptr; }
 public:
     explicit TG(Region * rg) { m_rg = rg; }
-    COPY_CONSTRUCTOR(TG);
 
-    //Pick out exception-handling-vertex and related edge.
-    void pickEH()
-    {
-        List<IRBB*> * bbs = m_rg->getBBList();
-        for (IRBB * bb = bbs->get_head(); bb != nullptr; bb = bbs->get_next()) {
-            if (!bb->isExceptionHandler()) { continue; }
-            removeVertex(bb->id());
-        }
-    }
-
-    inline void computeDomAndIdom()
+    void computeDomAndIdom()
     {
         if (!computeDom()) { UNREACHABLE(); }
         if (!computeIdom()) { UNREACHABLE(); }
     }
-
-    inline void computePdomAndIpdom(xcom::Vertex * root)
+    void computePdomAndIpdom(xcom::Vertex * root)
     {
         if (!computePdomByRPO(root, nullptr)) { UNREACHABLE(); }
         if (!computeIpdom()) { UNREACHABLE(); }
         revisePdomByIpdom();
     }
+
+    //Pick out exception-handling-vertex and related edge.
+    void pickOutEH();
 };
 
 
@@ -99,8 +91,7 @@ protected:
 protected:
     TG * allocTG(Region * rg);
 public:
-    GCSECtx(OptCtx & oc, xcom::DomTree const& domtree, ActMgr * am,
-            GCSE * gcse);
+    GCSECtx(OptCtx & oc, ActMgr * am, GCSE * gcse);
     ~GCSECtx();
     IRCFG * getCFG() const { return m_cfg; }
     TG * getTG() const { return m_tg; }
@@ -226,8 +217,8 @@ protected:
     //     ...
     //     ...=a+b <--use CSE
     //gen: generated CSE.
-    void processCseGen(MOD IR * gen, MOD IR * gen_stmt, bool & change,
-                       GCSECtx const& ctx);
+    void processCseGen(
+        MOD IR * gen, MOD IR * gen_stmt, bool & change, GCSECtx const& ctx);
 
     //If find 'exp' is CSE, replace it with related pr.
     //NOTE: exp should be freed.

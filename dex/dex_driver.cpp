@@ -652,6 +652,7 @@ bool compileFunc(
     } else {
         ASSERT0(rumgr == nullptr);
         rm = new DexRegionMgr();
+        rm->initTypeMgr();
         rm->initVarMgr();
         rm->init();
     }

@@ -438,71 +438,151 @@ void DUMgr::freeDUSetForAllIR()
 //which are overlapped with the MustRef, otherwise it will compute the
 //overlapped MD set which is overlapped to every elements in current MayRef
 //of ir.
+static void computeOverlapMDSetByMustRef(
+    IR * ir, MD const* must, bool recompute, MOD DUMgr * dumgr,
+    MOD ConstMDIter & tmptabit)
+{
+    //Note we do NOT compute overlap set of MayRef MDSet if MustRef exist.
+    //Because the overlapped MayRef will blow up when we invoke
+    //computeOverlapMDSet() multiple times at once.
+    //e.g: struct S { int a; int b } s;
+    //     Given MayRef MDSet {s.a}, the overlapped MDSet is {s.a, s};
+    //     If we compute overlapped set for MDSet {s.a, s}, the result
+    //     will be {s.a, s, s.b}, that is over-conservative to the real
+    //     result.
+    ASSERTN(!ir->isCallStmt(), ("Call should be processed specially"));
+    if (xoc::isGlobalSideEffectMD(must->id())) {
+        return;
+    }
+    Region const* rg = dumgr->getRegion();
+    DefSBitSetCore * is_cachedmdset = dumgr->getIsCachedMDSet();
+    MD2MDSet * cachedmdset = dumgr->getCachedOverlapMDSet();
+
+    //Compute overlapped MDSet for must-ref.
+    if (recompute ||
+        (is_cachedmdset != nullptr &&
+         !is_cachedmdset->is_contain(must->id()))) {
+        MDSet tmpmds;
+        rg->getMDSystem()->computeOverlap(
+            rg, must, tmpmds, tmptabit, *dumgr->getSBSMgr(), true);
+        MDSet const* newmds = dumgr->getMDHash()->append(tmpmds);
+        if (newmds != nullptr && cachedmdset != nullptr) {
+            cachedmdset->set(must->id(), newmds);
+            ASSERT0(is_cachedmdset);
+            is_cachedmdset->bunion(must->id(), *dumgr->getSBSMgr());
+        }
+        if (newmds == nullptr) {
+            //If newmds is nullptr, clean may-ref of ir.
+            ir->cleanMayRef();
+        } else {
+            ir->setMayRef(newmds, rg);
+        }
+        tmpmds.clean(*dumgr->getSBSMgr());
+        return;
+    }
+    MDSet const* set = nullptr;
+    if (cachedmdset != nullptr) {
+        set = cachedmdset->get(must->id());
+    }
+    if (set == nullptr) {
+        ir->cleanMayRef();
+    } else {
+        ir->setMayRef(set, rg);
+    }
+}
+
+
+void DUMgr::changeDef(
+    UINT to, UINT from,  DUSet * useset_of_to, DUSet * useset_of_from,
+    DefMiscBitSetMgr * m)
+{
+    ASSERT0(m_rg->getIR(from)->is_stmt() &&
+            m_rg->getIR(to)->is_stmt() &&
+            useset_of_to && useset_of_from && m);
+    if (to == from) { return; }
+    DUSetIter di = nullptr;
+    for (BSIdx i = useset_of_from->get_first(&di);
+         di != nullptr; i = useset_of_from->get_next(i, &di)) {
+        IR const* exp = m_rg->getIR(i);
+        ASSERT0(exp->is_exp() && exp->isMemRef());
+        DUSet * defset = exp->getDUSet();
+        if (defset == nullptr) { continue; }
+        defset->diff(from, *getSBSMgr());
+        defset->bunion(to, *getSBSMgr());
+    }
+    useset_of_to->bunion(*useset_of_from, *m);
+    useset_of_from->clean(*m);
+}
+
+
+void DUMgr::changeDef(IR * to, IR * from)
+{
+    ASSERT0(to && from && to->is_stmt() && from->is_stmt());
+    DUSet * useset_of_from = from->getDUSet();
+    if (useset_of_from == nullptr) { return; }
+    DUSet * useset_of_to = genDUSet(to);
+    changeDef(to->id(), from->id(), useset_of_to, useset_of_from,
+              getSBSMgr());
+}
+
+
+void DUMgr::changeUse(IR * to, IR const* from)
+{
+    ASSERT0(to && from && to->is_exp() && from->is_exp());
+    DUSet * defset_of_from = from->getDUSet();
+    if (defset_of_from == nullptr) { return; }
+    DUSet * defset_of_to = genDUSet(to);
+    changeUse(to->id(), from->id(), defset_of_to, defset_of_from,
+              getSBSMgr());
+}
+
+
+void DUMgr::changeUse(
+    UINT to, UINT from,  DUSet * defset_of_to, DUSet * defset_of_from,
+    DefMiscBitSetMgr * m)
+{
+    ASSERT0(m_rg->getIR(from)->is_exp() && m_rg->getIR(to)->is_exp() &&
+            defset_of_from && defset_of_to && m);
+    if (to == from) { return; }
+    DUSetIter di = nullptr;
+    for (BSIdx i = defset_of_from->get_first(&di);
+         di != nullptr; i = defset_of_from->get_next(i, &di)) {
+        IR * stmt = m_rg->getIR(i);
+        ASSERT0(stmt->is_stmt());
+        DUSet * useset = stmt->getDUSet();
+        if (useset == nullptr) { continue; }
+        useset->diff(from, *getSBSMgr());
+        useset->bunion(to, *getSBSMgr());
+    }
+    defset_of_to->bunion(*defset_of_from, *m);
+    defset_of_from->clean(*m);
+}
+
+
+//Compute the overlapping MDSet that might overlap ones which 'ir' referred.
+//Then set the MDSet to be ir's may-referred MDSet.
+//e.g: int A[100], there are two referrence of array A: A[i], A[j]
+//    A[i] might overlap A[j].
+//recompute: true to compute overlapping MDSet even if it has cached.
+//Note if ir has MustRef, the function will only compute the overlapped MD
+//which are overlapped with the MustRef, otherwise it will compute the
+//overlapped MD set which is overlapped to every elements in current MayRef
+//of ir.
 void DUMgr::computeOverlapMDSet(IR * ir, bool recompute)
 {
     MD const* must = ir->getMustRef();
-    MDSet tmpmds;
     if (must != nullptr) {
-        //Note we do NOT compute overlap set of MayRef MDSet if MustRef exist.
-        //Because the overlapped MayRef will blow up when we invoke
-        //computeOverlapMDSet() multiple times at once.
-        //e.g: struct S { int a; int b } s;
-        //     Given MayRef MDSet {s.a}, the overlapped MDSet is {s.a, s};
-        //     If we compute overlapped set for MDSet {s.a, s}, the result
-        //     will be {s.a, s, s.b}, that is over-conservative to the real
-        //     result.
-        ASSERTN(!ir->isCallStmt(), ("Call should be processed specially"));
-        if (xoc::isGlobalSideEffectMD(must->id())) {
-            return;
-        }
-
-        //Compute overlapped MDSet for must-ref.
-        if (recompute ||
-            (m_is_cached_mdset != nullptr &&
-             !m_is_cached_mdset->is_contain(must->id()))) {
-            m_md_sys->computeOverlap(m_rg, must, tmpmds, m_tab_iter,
-                                     *getSBSMgr(), true);
-
-            MDSet const* newmds = m_mds_hash->append(tmpmds);
-            if (newmds != nullptr && m_cached_overlap_mdset != nullptr) {
-                m_cached_overlap_mdset->set(must, newmds);
-                ASSERT0(m_is_cached_mdset);
-                m_is_cached_mdset->bunion(must->id(), *getSBSMgr());
-            }
-            if (newmds == nullptr) {
-                //If newmds is nullptr, clean may-ref of ir.
-                ir->cleanMayRef();
-            } else {
-                ir->setMayRef(newmds, m_rg);
-            }
-            tmpmds.clean(*getSBSMgr());
-            return;
-        }
-
-        ASSERT0(tmpmds.is_empty());
-        MDSet const* set = nullptr;
-        if (m_cached_overlap_mdset != nullptr) {
-            set = m_cached_overlap_mdset->get(must);
-        }
-        if (set == nullptr) {
-            ir->cleanMayRef();
-        } else {
-            ir->setMayRef(set, m_rg);
-        }
+        computeOverlapMDSetByMustRef(ir, must, recompute, this, m_tab_iter);
         return;
     }
-
     //Compute overlapped MDSet for may-ref, may-ref may contain several MDs.
     MDSet const* may = ir->getMayRef();
-    if (may == nullptr) {
-        ASSERT0(tmpmds.is_empty());
-        return;
-    }
-
+    if (may == nullptr) { return; }
     ASSERTN(!may->is_empty(), ("can not get a hashed MDSet that is empty"));
+    MDSet tmpmds;
     tmpmds.copy(*may, *getSBSMgr());
-    m_md_sys->computeOverlap(m_rg, *may, tmpmds, m_tab_iter,
-                             *getSBSMgr(), true);
+    m_md_sys->computeOverlap(
+        m_rg, *may, tmpmds, m_tab_iter, *getSBSMgr(), true);
     ir->setMayRef(m_mds_hash->append(tmpmds), m_rg);
     tmpmds.clean(*getSBSMgr());
 }
@@ -1529,16 +1609,18 @@ void DUMgr::removeUse(IR const* ir)
 //The functin cutoff DU chain between d1, d2 and their use.
 void DUMgr::removeUseFromDefset(IR const* ir)
 {
-    m_citer.clean();
-    IR const* k;
-    if (ir->is_stmt()) {
-        k = iterExpInitC(ir, m_citer);
-    } else {
-        k = iterInitC(ir, m_citer);
+    if (ir->is_exp() && ir->isMemOpnd()) {
+        DUMgr::removeUse(ir);
     }
-    for (; k != nullptr; k = iterExpNextC(m_citer)) {
-        if (k->isMemOpnd()) {
-            DUMgr::removeUse(k);
+    for (UINT i = 0; i < IR_MAX_KID_NUM(ir); i++) {
+        IR * x = ir->getKid(i);
+        if (x == nullptr) { continue; }
+        m_citer.clean();
+        for (IR const* k = iterInitC(x, m_citer); k != nullptr;
+             k = iterExpNextC(m_citer)) {
+            if (k->isMemOpnd()) {
+                DUMgr::removeUse(k);
+            }
         }
     }
 }
@@ -1770,8 +1852,8 @@ void DUMgr::inferIndirectMemStmt(IR * ir, DUOptFlag duflag)
 }
 
 
-bool DUMgr::inferCallStmtForNonPRViaCallGraph(IR const* ir,
-                                              OUT MDSet & maydefuse)
+bool DUMgr::inferCallStmtForNonPRViaCallGraph(
+    IR const* ir, OUT MDSet & maydefuse)
 {
     //Prefer to use calllee's MayDef if callee region has been processed.
     CallGraph * callg = m_rg->getCallGraphPreferProgramRegion();
@@ -2151,7 +2233,7 @@ void DUMgr::computeMDRef(MOD OptCtx & oc, DUOptFlag duflag)
     START_TIMER(t1, "Build DU ref");
     ASSERT0(m_is_cached_mdset == nullptr && m_cached_overlap_mdset == nullptr);
     m_is_cached_mdset = new DefSBitSetCore();
-    m_cached_overlap_mdset = new TMap<MD const*, MDSet const*>();
+    m_cached_overlap_mdset = new MD2MDSet;
     BBList * bbl = m_rg->getBBList();
     BBListIter bbct;
     for (bbl->get_head(&bbct); bbct != nullptr; bbct = bbl->get_next(bbct)) {
@@ -2174,37 +2256,34 @@ void DUMgr::computeMDRef(MOD OptCtx & oc, DUOptFlag duflag)
 //according to operand in atom operation.
 void DUMgr::computeAtomMDRef(IR * ir)
 {
-    ASSERT0(ir->is_atomic());
-    //By default, RMW could be simulated by IR_CALL with 3 arguments, e.g:
-    //call Opcode:i32, OldValueMemory:<valuetype>, NewValue:<valuetype>;
+    ASSERTN(ir->is_atomic(), ("ir should be marked with atomic-attribute"));
+
+    //By default, ATOMIC RMW could be simulated by IR_CALL with 3 arguments.
+    //e.g: call Opcode:i32, OldValueMemory:<valuetype>, NewValue:<valuetype>;
     //where Opcode defined the RMW operations, OldValueMemory indicates
     //the memory location with valuetype that hold oldvalue, and NewValue
     //is the value to be set.
     ASSERTN(ir->is_call(), ("Target Dependent Code"));
-    IR const* oldvaluemem = CALL_arg_list(ir);
-    ASSERTN(oldvaluemem, ("Target Dependent Code"));
-    IR const* newvaluemem = oldvaluemem->get_next();
-    ASSERTN(newvaluemem, ("Target Dependent Code"));
+
+    //Try iter Atomic opcode, Old value memory, and New value.
     MDSet atomdefmds;
-    if (ir->getRefMD() != nullptr) {
-        atomdefmds.bunion(ir->getRefMD(), *getSBSMgr());
+    for (IR const* atomarg = CALL_arg_list(ir);
+         atomarg != nullptr; atomarg = atomarg->get_next()) {
+        if (!atomarg->isMemRefNonPR() || !atomarg->hasSideEffect(true)) {
+            continue;
+        }
+        //NOTE: In atomic operation, oldvaluemem must be memory operation.
+        //where newvalue may NOT be memory, thus there is no need to regard
+        //newvalue as the CALL's MD reference.
+        if (atomarg->getMustRef() != nullptr) {
+            atomdefmds.bunion(atomarg->getMustRef(), *getSBSMgr());
+        }
+        if (atomarg->getMayRef() != nullptr) {
+            atomdefmds.bunion(*atomarg->getMayRef(), *getSBSMgr());
+        }
     }
-    if (ir->getRefMDSet() != nullptr) {
-        atomdefmds.bunion(*ir->getRefMDSet(), *getSBSMgr());
-    }
-    if (oldvaluemem->getRefMD() != nullptr) {
-        atomdefmds.bunion(oldvaluemem->getRefMD(), *getSBSMgr());
-    }
-    if (oldvaluemem->getRefMDSet() != nullptr) {
-        atomdefmds.bunion(*oldvaluemem->getRefMDSet(), *getSBSMgr());
-    }
-    if (newvaluemem->getRefMD() != nullptr) {
-        atomdefmds.bunion(newvaluemem->getRefMD(), *getSBSMgr());
-    }
-    if (newvaluemem->getRefMDSet() != nullptr) {
-        atomdefmds.bunion(*newvaluemem->getRefMDSet(), *getSBSMgr());
-    }
-    ir->setMayRef(m_mds_hash->append(atomdefmds), m_rg);
+    MDSet const* mds = m_mds_hash->append(atomdefmds);
+    if (mds != nullptr) { ir->setMayRef(mds, m_rg); }
     atomdefmds.clean(*getSBSMgr());
 }
 
@@ -3106,6 +3185,84 @@ bool DUMgr::verifyMDRefForExtIR(IR const* ir, ConstIRIter & cii)
 }
 
 
+static bool verifyMDRefForSETELEM(IR const* ir)
+{
+    if (g_is_support_dynamic_type) {
+        ASSERTN(ir->getMustRef(), ("type is at least effect"));
+        ASSERTN(ir->getMustRef()->is_pr(),
+                ("MD must present a PR."));
+    } else if (!ir->is_any()) {
+        MD const* md = ir->getMustRef();
+        ASSERT0(md);
+        if (!md->is_exact()) {
+            ASSERTN(md->is_range(), ("type must be range"));
+        }
+        ASSERTN(md->is_pr(), ("MD must present a PR."));
+    }
+    ASSERT0(ir->getRefMDSet() == nullptr);
+    return true;
+}
+
+
+static bool verifyMDRefForSTARRAY(IR const* ir, Region const* rg)
+{
+    MD const* must = ir->getMustRef();
+    MDSet const* may = ir->getMayRef();
+    DUMMYUSE(must);
+    DUMMYUSE(may);
+    ASSERT0(must || (may && !may->is_empty()));
+    if (must != nullptr) {
+        //PR can not be accessed by indirect operation.
+        ASSERT0(!must->is_pr());
+
+        //CASE:In C lang, function local const variable initialization
+        //is dependent on store operation to stack memory to inialize
+        //the variable. Thus disable the verify of readonly attribute
+        //here to facilitate user's IR generation.
+        //e.g:compile/local_const_init.c
+        //ASSERT0(!must->get_base()->is_readonly());
+    }
+    if (may == nullptr) { return true; }
+
+    //PR can not be accessed by indirect operation.
+    MDSetIter iter;
+    for (BSIdx i = may->get_first(&iter);
+         i != BS_UNDEF; i = may->get_next(i, &iter)) {
+        MD const* x = rg->getMDSystem()->getMD(i);
+        DUMMYUSE(x);
+        ASSERT0(x && !x->is_pr());
+        //CASE:In C lang, function local const variable
+        //initialization is dependent on store operation to stack
+        //memory to inialize the variable. Thus disable the verify
+        //of readonly attribute here to facilitate user's IR
+        //generation.
+        //e.g:compile/local_const_init.c
+        //ASSERT0(!x->get_base()->is_readonly());
+    }
+    ASSERT0(rg->getMDSetHash()->find(*may));
+    return true;
+}
+
+
+static bool verifyMDRefForCALL(IR const* ir, Region const* rg)
+{
+    MD const* ref = ir->getMustRef();
+    ASSERT0_DUMMYUSE(ref == nullptr || ref->is_pr());
+    MDSet const* may = ir->getMayRef();
+    if (may == nullptr) { return true; }
+    ASSERT0(rg->getMDSetHash()->find(*may));
+
+    //MayRef of call should not contain PR.
+    MDSetIter iter;
+    for (BSIdx i = may->get_first(&iter);
+         i != BS_UNDEF; i = may->get_next((UINT)i, &iter)) {
+        MD * md = rg->getMDSystem()->getMD(i);
+        ASSERTN_DUMMYUSE(md && !md->is_pr(), ("PR should not in MaySet"));
+    }
+    return true;
+}
+
+
 bool DUMgr::verifyMDRefForIR(IR const* ir, ConstIRIter & cii)
 {
     for (IR const* t = iterInitC(ir, cii); t != nullptr; t = iterNextC(cii)) {
@@ -3146,80 +3303,19 @@ bool DUMgr::verifyMDRefForIR(IR const* ir, ConstIRIter & cii)
             ASSERT0(t->getMustRef() && t->getMustRef()->is_pr());
             ASSERT0(t->getMayRef() == nullptr);
             break;
-        case IR_STARRAY: {
-            MD const* must = t->getMustRef();
-            MDSet const* may = t->getMayRef();
-            DUMMYUSE(must);
-            DUMMYUSE(may);
-            ASSERT0(must || (may && !may->is_empty()));
-            if (must != nullptr) {
-                //PR can not be accessed by indirect operation.
-                ASSERT0(!must->is_pr());
-
-                //CASE:In C lang, function local const variable initialization
-                //is dependent on store operation to stack memory to inialize
-                //the variable. Thus disable the verify of readonly attribute
-                //here to facilitate user's IR generation.
-                //e.g:compile/local_const_init.c
-                //ASSERT0(!must->get_base()->is_readonly());
-            }
-            if (may != nullptr) {
-                //PR can not be accessed by indirect operation.
-                MDSetIter iter;
-                for (BSIdx i = may->get_first(&iter);
-                     i != BS_UNDEF; i = may->get_next(i, &iter)) {
-                    MD const* x = m_rg->getMDSystem()->getMD(i);
-                    DUMMYUSE(x);
-                    ASSERT0(x && !x->is_pr());
-                    //CASE:In C lang, function local const variable
-                    //initialization is dependent on store operation to stack
-                    //memory to inialize the variable. Thus disable the verify
-                    //of readonly attribute here to facilitate user's IR
-                    //generation.
-                    //e.g:compile/local_const_init.c
-                    //ASSERT0(!x->get_base()->is_readonly());
-                }
-                ASSERT0(m_rg->getMDSetHash()->find(*may));
-            }
+        case IR_STARRAY:
+            verifyMDRefForSTARRAY(ir, m_rg);
             break;
-        }
         SWITCH_CASE_READ_ARRAY:
         SWITCH_CASE_INDIRECT_MEM_OP:
             verifyIndirectMemOpImpl(t, m_rg);
             break;
         case IR_SETELEM:
-            if (g_is_support_dynamic_type) {
-                ASSERTN(t->getMustRef(), ("type is at least effect"));
-                ASSERTN(t->getMustRef()->is_pr(),
-                        ("MD must present a PR."));
-            } else if (!t->is_any()) {
-                MD const* md = t->getMustRef();
-                ASSERT0(md);
-                if (!md->is_exact()) {
-                    ASSERTN(md->is_range(), ("type must be range"));
-                }
-                ASSERTN(md->is_pr(), ("MD must present a PR."));
-            }
-            ASSERT0(t->getRefMDSet() == nullptr);
+            verifyMDRefForSETELEM(ir);
             break;
-        SWITCH_CASE_CALL: {
-            MD const* ref = t->getMustRef();
-            ASSERT0_DUMMYUSE(ref == nullptr || ref->is_pr());
-            MDSet const* may = t->getMayRef();
-            if (may != nullptr) {
-                ASSERT0(m_rg->getMDSetHash()->find(*may));
-
-                //MayRef of call should not contain PR.
-                MDSetIter iter;
-                for (BSIdx i = may->get_first(&iter);
-                     i != BS_UNDEF; i = may->get_next((UINT)i, &iter)) {
-                    MD * md = m_rg->getMDSystem()->getMD(i);
-                    ASSERTN_DUMMYUSE(md && !md->is_pr(),
-                                     ("PR should not in MaySet"));
-                }
-            }
+        SWITCH_CASE_CALL:
+            verifyMDRefForCALL(ir, m_rg);
             break;
-        }
         SWITCH_CASE_BIN:
         SWITCH_CASE_UNA:
         SWITCH_CASE_BRANCH_OP:
@@ -3758,8 +3854,8 @@ void DUMgr::computeOverlapSetForWorstCase()
     if (worst == nullptr) { return; }
     xcom::Vector<MD const*> tmpvec;
     MDSet tmpmds;
-    m_md_sys->computeOverlap(m_rg, *worst, tmpmds, m_tab_iter,
-                             *getSBSMgr(), true);
+    m_md_sys->computeOverlap(
+        m_rg, *worst, tmpmds, m_tab_iter, *getSBSMgr(), true);
     if (tmpmds.is_empty()) { return; }
 
     //Register the MDSet.

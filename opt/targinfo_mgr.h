@@ -92,7 +92,7 @@ public:
     //Get vector callee saved register set of different architectures.
     virtual xgen::RegSet const* getCalleeVectorRegSet() const;
 
-   //Get scalar caller saved register set of different architectures.
+    //Get scalar caller saved register set of different architectures.
     virtual xgen::RegSet const* getCallerRegSet() const
     { ASSERTN(0, ("Target Dependent Code")); return nullptr; }
 

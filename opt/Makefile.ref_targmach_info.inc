@@ -21,7 +21,6 @@ dynamic_stack.o\
 var2offset.o\
 ir_reloc_mgr.o\
 igoto_opt.o\
-kernel_adjustment.o\
 var_lifetime.o\
 var_liveness_mgr.o\
 lsra_var_liveness_mgr.o\

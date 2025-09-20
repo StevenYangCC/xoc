@@ -928,6 +928,12 @@ protected:
     VN const* computePhiPROpnd(IR const* exp, bool & change);
     VN const* computePhiOpnd(IR const* exp, bool & change);
 
+    //Compute VN by the dedicated target usage, for example, there is a ZERO
+    //register on some target, so this function should be overriden if
+    //the target has such dedicated registers.
+    virtual VN const* computeVNByDedicatedTargetUsage(IR const* exp)
+    { return nullptr; }
+
     void dumpIR2VN() const;
     void destroyLocalUsed();
 

@@ -107,6 +107,12 @@ public:
 };
 
 
+class CallInstDesc : public mach::MInstDesc {
+public:
+    CallInstDesc(mach::MInstMgr const& im) : MInstDesc(im) {}
+};
+
+
 class LabelInstDesc : public mach::MInstDesc {
 public:
     LabelInstDesc(mach::MInstMgr const& im) : MInstDesc(im) {}

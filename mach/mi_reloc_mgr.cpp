@@ -37,8 +37,8 @@ namespace mach {
 static bool hasLocalVar(mach::MInst const* mi)
 {
     ASSERT0(mi);
-    return (mi->hasVar() && MI_var(mi) != nullptr &&
-            MI_var(mi)->is_local());
+    return (mi->hasVar() && MEMACCMI_var(mi) != nullptr &&
+            MEMACCMI_var(mi)->is_local());
 }
 
 //
@@ -84,7 +84,7 @@ static bool isMIAlignedByWordLength(TMWORD offset, UINT length)
 TMWORD MIRelocMgr::computeJumpOff(MInstMgr * mimgr,
     Label2Offset const& lab2off, MInst const* mi)
 {
-    TMWORD label_pc = lab2off.get(MI_lab(mi));
+    TMWORD label_pc = lab2off.get(LABMI_lab(mi));
     TMWORD inst_pc = MI_pc(mi);
     TMWORD inst_size = mi->getWordBufLen();
 
@@ -95,7 +95,7 @@ TMWORD MIRelocMgr::computeJumpOff(MInstMgr * mimgr,
     //Note that, For some architectures, it is inconsistent whether the
     //distance between the target label and the current jump instruction needs
     //to be subtracted by 1.
-    ASSERT0(lab2off.find(MI_lab(mi)));
+    ASSERT0(lab2off.find(LABMI_lab(mi)));
     INT64 val = (INT64)(label_pc - inst_pc) / (UINT)inst_size -
         isDistanceNeedSubOne();
     ASSERT0(jumpOffIsValid(val, mi));
@@ -120,7 +120,7 @@ void MIRelocMgr::computeDataOffset(MOD MIList & milst,
         if (m_mimgr->isLabel(mi)) {
             if (xoc::g_debug) {
                 //We need to update the pc of the MCSymbol for the function.
-                Sym const* sym = LABELINFO_pragma(MI_lab(mi));
+                Sym const* sym = LABELINFO_pragma(LABMI_lab(mi));
                 ASSERT0(sym);
                 dm->setFuncLabelOff((UINT)offset, sym);
             }
@@ -135,7 +135,7 @@ void MIRelocMgr::computeDataOffset(MOD MIList & milst,
         }
 
         if (mi->hasLab()) {
-            ASSERT0(MI_lab(mi));
+            ASSERT0(LABMI_lab(mi));
             TMWORD m_jump_offset = computeJumpOff(m_mimgr, lab2off, mi);
             setValueViaMICode(mi, m_jump_offset);
             m_jump_offset_map.set(mi, m_jump_offset);
@@ -147,7 +147,7 @@ void MIRelocMgr::computeDataOffset(MOD MIList & milst,
 
         if (hasLocalVar(mi)) {
             TMWORD var_offset = (TMWORD)m_var2offset->
-                computeVarOffset(MI_var(mi));
+                computeVarOffset(MEMACCMI_var(mi));
 
             //[BUG_FIX] The offset of the memory access instruction needs to be
             //aligned upward according to the instruction type.
@@ -179,8 +179,8 @@ void MIRelocMgr::computeCodeOffset(MOD MIList & milst,
     for (MInst * mi = milst.get_head(&it);
          mi != nullptr; mi = milst.get_next(&it)) {
         if (m_mimgr->isLabel(mi)) {
-            ASSERT0(MI_lab(mi));
-            lab2off.set(MI_lab(mi), offset);
+            ASSERT0(LABMI_lab(mi));
+            lab2off.set(LABMI_lab(mi), offset);
             continue;
         }
         setCodeAlign(mi->getWordBufLen());

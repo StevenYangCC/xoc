@@ -418,6 +418,7 @@ protected:
     virtual SimpCtx * allocSimpCtx(OptCtx * oc, ActMgr * am = nullptr)
     { return new SimpCtx(oc, am); }
 
+    virtual UINT computeArrayElemByteSize(IR * ir, SimpCtx * ctx) const;
     virtual SimpCtx * copySimpCtx(SimpCtx const& src)
     {
         SimpCtx * newctx = allocSimpCtx(src.getOptCtx(), src.getActMgr());

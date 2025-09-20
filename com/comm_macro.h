@@ -121,6 +121,12 @@ namespace xcom {
                        ((i & 0xF0000000000000) << 6) | \
                        ((i & 0xFFC0000000000) << 6)) >> 48
 
+#define DOUBLE2BF16(i) ( \
+    (((i >> 48) & 0x8000)) | \
+    (((((i >> 52) & 0x7FF) - 1023 + 127) << 7) & 0x7F80) | \
+    (((i >> 45) & 0x007F)) \
+)
+
 typedef UINT BSIdx;
 #define BS_UNDEF ((BSIdx)-1) //The maximum unsigned integer
 

@@ -2780,7 +2780,7 @@ bool RegPromot::EvaluableScalarReplacement(
     bool changed = false;
     while (worklst.get_elem_count() > 0) {
         LI<IRBB> const* x = worklst.remove_head();
-        LoopDepCtx ldactx(getRegion(), x);
+        LoopDepCtx ldactx(getRegion(), x, &getActMgr());
         ctx.setLI(x); //record current loop-info in context.
         ctx.setLoopDepCtx(&ldactx);
         changed |= tryPromoteLoop(x, ii, ctx);
@@ -2929,7 +2929,6 @@ bool RegPromot::perform(OptCtx & oc)
     if (bbl == nullptr || bbl->get_elem_count() == 0) { return false; }
     if (!oc.is_ref_valid()) { return false; }
     if (!oc.is_cfg_valid()) { return false; }
-
     START_TIMER(t, getPassName());
     if (!initDepPass(oc)) {
         END_TIMER(t, getPassName());
@@ -2939,7 +2938,7 @@ bool RegPromot::perform(OptCtx & oc)
     if (!g_dump_opt.isDumpToBuffer()) { buff.close(); }
     dumpBeforePass();
     reset();
-    List<LI<IRBB> const*> worklst;
+    xcom::List<LI<IRBB> const*> worklst;
     LI<IRBB> const* li = m_cfg->getLoopInfo();
     while (li != nullptr) {
         worklst.append_tail(li);

@@ -349,7 +349,6 @@ void AliasAnalysis::cleanSBSMgr()
 //NOTICE: MD should be taken address.
 void AliasAnalysis::reviseMDSize(MOD MDSet & mds, UINT size)
 {
-    ASSERT0(size > 0);
     xcom::Vector<MD const*> res;
     UINT num = 0;
     bool change = false;
@@ -363,7 +362,18 @@ void AliasAnalysis::reviseMDSize(MOD MDSet & mds, UINT size)
         //e.g: int a[100], char * p = &a;
         //Even if size of element of a is 4 bytes, the size of p pointed to
         //is only 1 byte.
-        if (MD_size(md) != size) {
+        //If the size of the element pointed to by the pointer is 0,
+        //its size is treated as unbounded, preventing its optimization.
+        //e.g: int a[0];
+        if (size == 0) {
+            Var * var = MD_base(md);
+            ASSERT0(var);
+            MD const* entry = m_md_sys->registerUnboundMD(var, size);
+            ASSERT0(entry->id() > MD_UNDEF);
+            ASSERT0(entry->is_effect());
+            res.set(num, entry);
+            change = true;
+        } else if (MD_size(md) != size) {
             MD tmd(*md);
             MD_size(&tmd) = size;
             MD const* entry = m_md_sys->registerMD(tmd);

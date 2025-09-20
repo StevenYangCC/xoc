@@ -118,8 +118,10 @@ void FindAndSetLiveInDef::findAndSet(
     ASSERT0(info);
     OptCtx const& oc = getOptCtx();
     List<VMD*> newvmds;
+    bool hasref = false;
     MD const* must = exp->getMustRef();
     if (must != nullptr) {
+        hasref = true;
         VMD * newvmd = m_mgr->findDomLiveInDefFrom(
             must->id(), startir, startbb, oc, st);
         if (newvmd != nullptr) {
@@ -132,6 +134,7 @@ void FindAndSetLiveInDef::findAndSet(
     MDSet const* may = exp->getMayRef();
     if (may != nullptr) {
         MDSetIter it;
+        hasref |= may->is_empty() ? false : true;
         for (BSIdx i = may->get_first(&it); i != BS_UNDEF;
              i = may->get_next(i, &it)) {
             VMD * newvmd = m_mgr->findDomLiveInDefFrom(
@@ -144,6 +147,7 @@ void FindAndSetLiveInDef::findAndSet(
             newvmds.append_tail(m_mgr->genInitVersionVMD(i));
         }
     }
+    ASSERTN(hasref, ("MemOpnd miss MDRef"));
     m_mgr->removeExpFromAllVOpnd(exp);
     info->cleanVOpndSet(m_mgr->getUseDefMgr());
     for (VMD * v = newvmds.get_head();
@@ -276,7 +280,7 @@ static void iterDefCHelper(
         return;
     }
     ASSERT0(def->getOcc());
-    if (use != nullptr && isKillingDef(def->getOcc(), use, nullptr)) {
+    if (use != nullptr && xoc::isKillingDef(def->getOcc(), use, nullptr)) {
         //Stop the iteration until encounter the killing DEF real stmt.
         return;
     }
@@ -2137,6 +2141,7 @@ void MDSSAMgr::addSuccessorDesignatedPhiOpnd(
 
 void MDSSAMgr::dumpPhiList(MDPhiList const* philist) const
 {
+    if (!m_rg->isLogMgrInit() || !g_dump_opt.isDumpMDSSAMgr()) { return; }
     if (philist == nullptr) { return; }
     for (MDPhiListIter it = philist->get_head();
          it != philist->end(); it = philist->get_next(it)) {
@@ -2228,9 +2233,10 @@ void MDSSAMgr::dumpIRWithMDSSAForExpTree(IR const* ir) const
 
 void MDSSAMgr::dumpIRWithMDSSA(IR const* ir, MOD IRDumpCtx<> * ctx) const
 {
-    if (!m_rg->isLogMgrInit() || !g_dump_opt.isDumpMDSSAMgr()) { return; }
+    if (!m_rg->isLogMgrInit()) { return; }
     ASSERT0(ir);
     xoc::dumpIR(ir, m_rg, *ctx);
+    if (!g_dump_opt.isDumpMDSSAMgr()) { return; }
     LocalMDSSADump::dumpIRWithMDSSAInfo(this, m_rg, ir);
 }
 
@@ -2240,9 +2246,10 @@ void MDSSAMgr::dumpIRWithMDSSA(IR const* ir, MOD IRDumpCtx<> * ctx) const
 //flag: the flag to dump IR.
 void MDSSAMgr::dumpIRWithMDSSA(IR const* ir, DumpFlag flag) const
 {
-    if (!m_rg->isLogMgrInit() || !g_dump_opt.isDumpMDSSAMgr()) { return; }
+    if (!m_rg->isLogMgrInit()) { return; }
     ASSERT0(ir);
     xoc::dumpIR(ir, m_rg, nullptr, flag);
+    if (!g_dump_opt.isDumpMDSSAMgr()) { return; }
     LocalMDSSADump::dumpIRWithMDSSAInfo(this, m_rg, ir);
 }
 

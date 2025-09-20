@@ -1085,6 +1085,8 @@ bool CopyProp::perform(OptCtx & oc)
     dump();
     oc.setInvalidPass(PASS_EXPR_TAB);
     oc.setInvalidPass(PASS_AA);
+    ASSERT0(verifyMDRef(m_rg, oc));
+    ASSERT0(verifyClassicDUChain(m_rg, oc));
     oc.setValidPass(PASS_MD_REF);
     ASSERT0(m_dumgr->verifyMDRef());
     ASSERT0(verifyIRandBB(m_rg->getBBList(), m_rg));

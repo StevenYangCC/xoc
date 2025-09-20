@@ -127,21 +127,20 @@ bool LoopDepInfoSet::isAtMostContainLoopIndep(
 
 
 //
-//START LDAActMgr
+//START LoopDepCtx
 //
-void LDAActMgr::dumpAct(CHAR const* format, ...) const
+void LoopDepCtx::dumpAct(CHAR const* format, ...) const
 {
     if (!getRegion()->isLogMgrInit()) { return; }
-    LDAActMgr * pthis = const_cast<LDAActMgr*>(this);
     ASSERT0(format);
     va_list args;
     va_start(args, format);
-    pthis->dump_args(format, args);
+    m_am->dump_args(format, args);
     va_end(args);
 }
 
 
-void LDAActMgr::dumpAct(IR const* ir, CHAR const* format, ...) const
+void LoopDepCtx::dumpAct(IR const* ir, CHAR const* format, ...) const
 {
     if (!getRegion()->isLogMgrInit()) { return; }
     ASSERT0(ir);
@@ -152,8 +151,7 @@ void LDAActMgr::dumpAct(IR const* ir, CHAR const* format, ...) const
         tmpbuf.vstrcat(format, args);
         va_end(args);
     }
-    LDAActMgr * pthis = const_cast<LDAActMgr*>(this);
-    ActHandler acth = pthis->dump("Found Loop Dependence:");
+    ActHandler acth = m_am->dump("Found Loop Dependence:");
     if (format != nullptr) {
         acth.info->strcat("reason:%s", tmpbuf.getBuf());
     }
@@ -165,29 +163,26 @@ void LDAActMgr::dumpAct(IR const* ir, CHAR const* format, ...) const
 }
 
 
-void LDAActMgr::dumpLinRepAct(
+void LoopDepCtx::dumpLinRepAct(
     IVLinearRep const& linrep, CHAR const* format, ...) const
 {
     if (!getRegion()->isLogMgrInit()) { return; }
     ASSERTN(format, ("no action info"));
-    LDAActMgr * pthis = const_cast<LDAActMgr*>(this);
     xcom::StrBuf tmpbuf(64);
     va_list args;
     va_start(args, format);
     tmpbuf.vstrcat(format, args);
     va_end(args);
-    pthis->dump("LinearRepAct:%s", tmpbuf.buf);
+    m_am->dump("LinearRepAct:%s", tmpbuf.buf);
 }
-//END LDAActMgr
 
 
-//
-//START LoopDepCtx
-//
-LoopDepCtx::LoopDepCtx(Region const* rg, LI<IRBB> const* li) : m_am(rg)
+LoopDepCtx::LoopDepCtx(Region const* rg, LI<IRBB> const* li, ActMgr * am)
 {
-    ASSERT0(li);
+    ASSERT0(li && am);
     m_li = li;
+    m_am = am;
+    m_rg = rg;
     m_pool = smpoolCreate(sizeof(LoopDepInfo) * 4, MEM_COMM);
     m_firtab_pool = smpoolCreate(
         FirstTab::getTNodeSize() * 2, MEM_CONST_SIZE);
@@ -382,7 +377,7 @@ bool LoopDepAna::isSameMemLocIndirectOp(
     ASSERT0(src->getOffset() == tgt->getOffset());
     IR const* srcbase = src->getBase();
     IR const* tgtbase = tgt->getBase();
-    InferCtx ictx(ctx == nullptr ? nullptr : &ctx->getActMgr());
+    InferCtx ictx(ctx == nullptr ? nullptr : ctx->getActMgr());
     VN const* srcvn = getInferEVN().inferExp(srcbase, ictx);
     VN const* tgtvn = getInferEVN().inferExp(tgtbase, ictx);
     return srcvn == nullptr || srcvn == tgtvn;
@@ -530,7 +525,7 @@ bool LoopDepAna::transLoopCarrToLoopIndep(
         //Revise loop-carried to loop-independent to make loop dependence
         //more precise.
         ASSERT0(ldi->isTgtIR());
-        ctx.getActMgr().dumpAct(ir,
+        ctx.dumpAct(ir,
             "%s and %s access same memory location, thus they have "
             "loop-independent dependence",
             DumpIRName().dump(ldi->getSrc()),

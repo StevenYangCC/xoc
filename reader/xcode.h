@@ -88,6 +88,7 @@ typedef enum {
     X_CONTINUE,
     X_SWITCH,
     X_CASE,
+    X_DUMMYUSE,
     X_DEFAULT,
     X_VAR,
     X_FUNC,

@@ -146,31 +146,19 @@ public:
     bool is_dump_gscc; //Dump GSCC.
     bool is_dump_cdg; //Dump Control Dependence Graph.
     bool is_dump_lsra; //Dump LinearScanRA
+
+    //Used to dump the reorder functionality result in the LSRA PASS to verify
+    //the reorder result for the multiple MOV IRs if the reorder is required
+    //due to the USE dependencies problem.
+    bool is_dump_lsra_reorder_mov_in_latch_BB;
     bool is_dump_to_buffer; //Dump info to buffer
-    bool is_dump_pelog; //Dump PrologueEpilogue
-    bool is_dump_irfusion; //Dump IRFusion.
 
     //The option determines whether IR dumper dumps the IR's id when dumpIR()
     //invoked. It should be set to false when the dump information is used in
     //basedump file in testsuite, because the id may be different in different
     //compilation.
     bool is_dump_ir_id;
-    bool is_dump_gp_adjustment; //Dump GlobalPointerAdjustment
-    bool is_dump_br_opt; //Dump ir after BROpt.
-
-    //Used to dump the reorder functionality result in the LSRA PASS to verify
-    //the reorder result for the multiple MOV IRs if the reorder is required
-    //due to the USE dependencies problem.
-    bool is_dump_lsra_reorder_mov_in_latch_BB;
-    bool is_dump_argpasser; //Dump ArgPasser.
-    bool is_dump_irreloc; //Dump IRReloc.
-
-    bool is_dump_kernel_adjustment; //Dump ir after KernelAdjustment.
-    bool is_dump_last_simp; //Dump ir after last simplification.
-    bool is_dump_insert_vecset; //Dump vset information after InsertVecSet.
-    bool is_dump_inst_sched; //Dump inst sched information after InstSched.
     bool is_dump_linker; //Dump linker info.
-    bool is_dump_stack_coloring; //Dump some informations after stack coloring.
 public:
     DumpOption();
     DumpOption const& operator = (DumpOption const&); //Disable operator =.
@@ -179,7 +167,6 @@ public:
     bool isDumpAfterPass() const;
     bool isDumpAll() const;
     bool isDumpForTest() const;
-    bool isDumpArgPasser() const;
     bool isDumpBeforePass() const;
     bool isDumpBROpt() const;
     bool isDumpCalcDerivative() const;
@@ -195,19 +182,14 @@ public:
     bool isDumpExprTab() const;
     bool isDumpGCSE() const;
     bool isDumpMDRef() const;
-    bool isDumpGPAdjustment() const;
     bool isDumpGSCC() const;
     bool isDumpGVN() const;
     bool isDumpInferType() const;
     bool isDumpInsertCvt() const;
-    bool isDumpInstSched() const;
     bool isDumpInvertBrTgt() const;
-    bool isDumpIRFusion() const;
     bool isDumpIRID() const;
     bool isDumpIRParser() const;
-    bool isDumpIRReloc() const;
     bool isDumpIVR() const;
-    bool isDumpKernelAdjustment() const;
     bool isDumpLICM() const;
     bool isDumpLIS() const;
     bool isDumpLivenessMgr() const;
@@ -224,7 +206,6 @@ public:
     bool isDumpTargInfoHandler() const;
     bool isDumpAlgeReasscociate() const;
     bool isDumpNothing() const;
-    bool isDumpPElog() const;
     bool isDumpPRSSAMgr() const;
     bool isDumpRA() const;
     bool isDumpRCE() const;
@@ -233,13 +214,9 @@ public:
     bool isDumpRP() const;
     bool isDumpRPO() const;
     bool isDumpSimp() const;
-    bool isDumpStackColoring() const;
     bool isDumpToBuffer() const;
     bool isDumpVectorization() const;
     bool isDumpVRP() const;
-    bool isDumpLastSimp() const;
-    bool isDumpInsertVecSet() const;
-    bool isDumpLinker() const;
 
     void setDumpNothing();
     void setDumpAll();
@@ -333,7 +310,6 @@ typedef enum _PASS_TYPE {
     PASS_REGSSA_MGR,
     PASS_CFS_MGR,
     PASS_POLY_TRAN,
-    PASS_MD_BUGPATTERN_MGR,
     PASS_IPA,
     PASS_INLINER,
     PASS_REFINE_DUCHAIN,
@@ -353,20 +329,6 @@ typedef enum _PASS_TYPE {
     PASS_ALGE_REASSCOCIATE,
     PASS_TARGINFO_HANDLER,
     PASS_LOOP_DEP_ANA,
-    PASS_PROLOGUE_EPILOGUE,
-    PASS_GP_ADJUSTMENT,
-    PASS_BR_OPT,
-    PASS_WORKAROUND,
-    PASS_DYNAMIC_STACK,
-    PASS_IRRELOC,
-    PASS_ARGPASSER,
-    PASS_IGOTO_OPT,
-    PASS_MEMCHECK,
-    PASS_KERNEL_ADJUSTMENT,
-    PASS_INSERT_VECSET,
-    PASS_IRFUSION,
-    PASS_INST_SCHED,
-    PASS_STACK_COLORING,
     #include "pass_type_ext.inc"
     PASS_NUM,
 } PASS_TYPE;
@@ -546,7 +508,7 @@ extern bool g_do_vrp;
 extern bool g_infer_type;
 
 //Perform cfg optimization: invert branch condition and target.
-extern bool g_invert_branch_target;
+extern bool g_do_invert_brtgt;
 
 //Set true to eliminate control-flow-structures.
 //Note this option may incur user unexpected result:
@@ -670,47 +632,8 @@ extern bool g_do_alge_reasscociate;
 //Linear Scan Register Allocation.
 extern bool g_do_lsra;
 
-//Insert prologue and epilogue code.
-extern bool g_do_pelog;
-
 //Perform versatile scalar optimizations.
 extern bool g_do_scalar_opt;
-
-//Perform global pointer adjustment.
-extern bool g_do_gp_adjustment;
-
-//Perform relaxation.
-extern bool g_do_relaxation;
-
-//Perform memory check.
-extern bool g_do_memcheck;
-
-//Perform static memory check.
-extern bool g_do_memcheck_static;
-
-//Perform memory check of out-of-bound.
-extern bool g_do_memcheck_oob;
-
-//Perform static memory check of out-of-bound.
-extern bool g_do_memcheck_static_oob;
-
-//Perform memory check of stack overflow.
-extern bool g_do_memcheck_stackoverflow;
-
-//Perform reply word dependency analysis and revise.
-extern bool g_do_memcheck_reply_dependency;
-
-//Perform reply word dependency analysis only.
-extern bool g_do_memcheck_static_reply_dependency;
-
-//Adjust kernel.
-extern bool g_adjust_kernel;
-
-//Perform last simplification.
-extern bool g_do_last_simp;
-
-//Perform IR fusion.
-extern bool g_do_ir_fusion;
 
 //Set to true to retain the PassMgr even if Region processing finished.
 extern bool g_retain_pass_mgr_for_region;
@@ -783,17 +706,8 @@ extern bool g_stack_on_global;
 extern bool g_do_lsra_debug;
 extern UINT g_debug_reg_num;
 
-//Support vector setting.
-extern bool g_do_insert_vecset;
-
 //Enable fp as stack pointer.
 extern bool g_force_use_fp_as_sp;
-
-//Perform ir reloc.
-extern bool g_do_ir_reloc;
-
-//Enable arg passer.
-extern bool g_do_arg_passer;
 
 //Recycle local Var id and related MD id when destorying regions.
 extern bool g_recycle_local_id;
@@ -804,33 +718,11 @@ extern bool g_debug;
 //The front end is in debug_cpp mode.
 extern bool g_debug_cpp;
 
-//The front end is in debug_pcx mode.
-extern bool g_debug_pcx;
-
 //The front end is in debug_python mode.
 extern bool g_debug_python;
 
 //The front end is in debug_gr mode.
 extern bool g_debug_gr;
-
-//Only reuse the spill variables.
-extern bool g_do_spill_var_stack_coloring;
-
-//Only reuse the stack variables.
-extern bool g_do_stack_var_stack_coloring;
-
-//Reuse all local variables.
-extern bool g_do_local_var_stack_coloring;
-
-//Enable instruction scheduling
-extern bool g_do_inst_sched;
-
-//stack coloring.
-extern bool g_do_stack_coloring;
-
-//Consider setting separate vta and vma values for
-//the first vector instruction in the basic block.
-extern bool g_vset_insert_consider_first_vir;
 
 } //namespace xoc
 

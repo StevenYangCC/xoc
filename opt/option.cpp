@@ -80,7 +80,7 @@ bool g_do_dce = true;
 bool g_do_dce_aggressive = false;
 bool g_infer_type = true;
 bool g_do_vrp = false;
-bool g_invert_branch_target = true;
+bool g_do_invert_brtgt = true;
 bool g_do_lftr = false;
 bool g_do_dse = false;
 bool g_do_gcse = true;
@@ -112,10 +112,7 @@ bool g_do_loop_convert = false;
 bool g_do_poly_tran = false;
 bool g_do_refine_duchain = true;
 bool g_do_lsra = false;
-bool g_do_pelog = false;
 bool g_do_scalar_opt = true;
-bool g_do_gp_adjustment = true;
-bool g_do_relaxation = false;
 bool g_retain_pass_mgr_for_region = true;
 bool g_is_simplify_parameter = true;
 bool g_is_simplify_array_ingredient = true;
@@ -124,39 +121,18 @@ bool g_generate_var_for_pr = true;
 bool g_strictly_ensure_the_use_of_pointer = false;
 DumpOption g_dump_opt;
 PassOption g_pass_opt;
-ArchOption g_arch;
 bool g_redirect_stdout_to_dump_file = false;
 FILE * g_unique_dumpfile = nullptr;
 CHAR const* g_unique_dumpfile_name = nullptr;
 bool g_do_lsra_debug = false;
 UINT g_debug_reg_num = 0;
 bool g_force_use_fp_as_sp = false;
-bool g_do_ir_reloc = false;
 bool g_stack_on_global = false;
-bool g_do_spill_var_stack_coloring = false;
-bool g_do_stack_var_stack_coloring = false;
-bool g_do_local_var_stack_coloring = true;
-bool g_do_arg_passer = true;
 bool g_recycle_local_id = false;
+bool g_debug_gr = false;
 bool g_debug = false;
 bool g_debug_cpp = true;
-bool g_debug_pcx = false;
 bool g_debug_python = false;
-bool g_debug_gr = false;
-bool g_adjust_kernel = true;
-bool g_do_last_simp = true;
-bool g_do_insert_vecset = true;
-bool g_do_memcheck = false;
-bool g_do_memcheck_static = false;
-bool g_do_memcheck_oob = false;
-bool g_do_memcheck_static_oob = false;
-bool g_do_memcheck_stackoverflow = false;
-bool g_do_memcheck_reply_dependency = false;
-bool g_do_memcheck_static_reply_dependency = false;
-bool g_do_ir_fusion = true;
-bool g_do_inst_sched = false;
-bool g_do_stack_coloring = true;
-bool g_vset_insert_consider_first_vir = false;
 
 StrTabOption g_include_region;
 StrTabOption g_exclude_region;
@@ -277,11 +253,11 @@ void DumpOption::setDumpNothing()
     is_dump_livenessmgr = false;
     is_dump_irparser = false;
     is_dump_ir_id = false; //Do not dump IR's id by default.
+    is_dump_lsra_reorder_mov_in_latch_BB = false;
     is_dump_to_buffer = false;
     is_dump_cfgopt = false;
     is_dump_rce = false;
     is_dump_infertype = false;
-    is_dump_inst_sched = false;
     is_dump_invert_brtgt = false;
     is_dump_alge_reasscociate = false;
     is_dump_refine_duchain = false;
@@ -292,7 +268,6 @@ void DumpOption::setDumpNothing()
     is_dump_cdg = false;
     is_dump_lsra = false;
     is_dump_linker = false;
-    is_dump_irfusion = false;
 }
 
 
@@ -344,7 +319,6 @@ void DumpOption::setDumpAll()
     is_dump_infertype = true;
     is_dump_invert_brtgt = true;
     is_dump_alge_reasscociate = true;
-    is_dump_inst_sched = true;
     is_dump_refine_duchain = true;
     is_dump_refine = true;
     is_dump_insert_cvt = true;
@@ -353,7 +327,6 @@ void DumpOption::setDumpAll()
     is_dump_cdg = true;
     is_dump_lsra = true;
     is_dump_linker = true;
-    is_dump_irfusion = true;
 }
 
 
@@ -457,24 +430,6 @@ bool DumpOption::isDumpInferType() const
 bool DumpOption::isDumpInvertBrTgt() const
 {
     return is_dump_all || (!is_dump_nothing && is_dump_invert_brtgt);
-}
-
-
-bool DumpOption::isDumpInsertVecSet() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_insert_vecset);
-}
-
-
-bool DumpOption::isDumpInstSched() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_inst_sched);
-}
-
-
-bool DumpOption::isDumpStackColoring() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_stack_coloring);
 }
 
 
@@ -670,23 +625,6 @@ bool DumpOption::isDumpGSCC() const
 }
 
 
-bool DumpOption::isDumpPElog() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_pelog);
-}
-
-
-bool DumpOption::isDumpGPAdjustment() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_gp_adjustment);
-}
-
-bool DumpOption::isDumpBROpt() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_br_opt);
-}
-
-
 bool DumpOption::isDumpToBuffer() const
 {
     return is_dump_to_buffer;
@@ -697,42 +635,6 @@ bool DumpOption::isDumpLSRAReorderMovInLatchBB() const
 {
     return is_dump_all ||
         (!is_dump_nothing && is_dump_lsra_reorder_mov_in_latch_BB);
-}
-
-
-bool DumpOption::isDumpArgPasser() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_argpasser);
-}
-
-
-bool DumpOption::isDumpIRReloc() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_irreloc);
-}
-
-
-bool DumpOption::isDumpKernelAdjustment() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_kernel_adjustment);
-}
-
-
-bool DumpOption::isDumpLastSimp() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_last_simp);
-}
-
-
-bool DumpOption::isDumpLinker() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_linker);
-}
-
-
-bool DumpOption::isDumpIRFusion() const
-{
-    return is_dump_all || (!is_dump_nothing && is_dump_irfusion);
 }
 //END DumpOption
 
@@ -807,8 +709,8 @@ void Option::dump(MOD LogMgr * lm)
          g_do_dce_aggressive ? "true":"false");
     note(lm, "\ng_infer_type = %s", g_infer_type ? "true":"false");
     note(lm, "\ng_do_vrp = %s", g_do_vrp ? "true":"false");
-    note(lm, "\ng_invert_branch_target = %s",
-         g_invert_branch_target ? "true":"false");
+    note(lm, "\ng_do_invert_brtgt = %s",
+         g_do_invert_brtgt ? "true":"false");
     note(lm, "\ng_do_lftr = %s", g_do_lftr ? "true":"false");
     note(lm, "\ng_do_dse = %s", g_do_dse ? "true":"false");
     note(lm, "\ng_do_gcse = %s", g_do_gcse ? "true":"false");
@@ -844,24 +746,7 @@ void Option::dump(MOD LogMgr * lm)
     note(lm, "\ng_do_refine_duchain = %s",
          g_do_refine_duchain ? "true":"false");
     note(lm, "\ng_do_lsra = %s", g_do_lsra ? "true":"false");
-    note(lm, "\ng_do_pelog = %s", g_do_pelog ? "true":"false");
     note(lm, "\ng_do_scalar_opt = %s", g_do_scalar_opt ? "true":"false");
-    note(lm, "\ng_do_gp_adjustment = %s", g_do_gp_adjustment ? "true":"false");
-    note(lm, "\ng_do_relaxation = %s", g_do_relaxation ? "true":"false");
-    note(lm, "\ng_do_memcheck = %s", g_do_memcheck ? "true":"false");
-    note(lm, "\ng_do_memcheck_static = %s",
-         g_do_memcheck_static ? "true":"false");
-    note(lm, "\ng_do_memcheck_oob = %s",
-         g_do_memcheck_oob ? "true":"false");
-    note(lm, "\ng_do_memcheck_static_oob = %s",
-         g_do_memcheck_static_oob ? "true":"false");
-    note(lm, "\ng_do_memcheck_stackoverflow = %s",
-         g_do_memcheck_stackoverflow ? "true":"false");
-    note(lm, "\ng_do_memcheck_reply_dependency = %s",
-         g_do_memcheck_reply_dependency ? "true":"false");
-    note(lm, "\ng_do_memcheck_static_reply_dependency = %s",
-         g_do_memcheck_static_reply_dependency ? "true":"false");
-    note(lm, "\ng_do_inst_sched = %s", g_do_inst_sched ? "true":"false");
     note(lm, "\ng_retain_pass_mgr_for_region = %s",
          g_retain_pass_mgr_for_region ? "true":"false");
     note(lm, "\ng_is_simplify_parameter = %s",
@@ -887,22 +772,8 @@ void Option::dump(MOD LogMgr * lm)
     note(lm, "\ng_debug_reg_num = %u", g_debug_reg_num);
     note(lm, "\ng_force_use_fp_as_stack_pointer = %s",
          g_force_use_fp_as_sp ? "true":"false");
-    note(lm, "\ng_do_ir_reloc = %s", g_do_ir_reloc ? "true":"false");
-    note(lm, "\ng_stack_on_global = %s", g_stack_on_global ? "true":"false");
-    note(lm, "\ng_do_arg_passer = %s", g_do_arg_passer ? "true":"false");
     note(lm, "\ng_recycle_local_id = %s", g_recycle_local_id ? "true":"false");
-    note(lm, "\ng_do_spill_var_stack_coloring = %s",
-         g_do_spill_var_stack_coloring ? "true":"false");
-    note(lm, "\ng_do_stack_var_stack_coloring = %s",
-         g_do_stack_var_stack_coloring ? "true":"false");
-    note(lm, "\ng_do_local_var_stack_coloring = %s",
-         g_do_local_var_stack_coloring ? "true":"false");
-    note(lm, "\ng_do_stack_coloring = %s",
-         g_do_stack_coloring ? "true":"false");
-    note(lm, "\ng_adjust_kernel = %s", g_adjust_kernel ? "true":"false");
-    note(lm, "\ng_do_ir_fusion = %s", g_do_ir_fusion ? "true":"false");
-    note(lm, "\ng_vset_insert_consider_first_vir = %s",
-         g_vset_insert_consider_first_vir ? "true" : "false");
+    note(lm, "\ng_do_invert_brtgt = %s", g_do_invert_brtgt ? "true":"false");
     lm->decIndent(2);
 }
 
@@ -991,7 +862,7 @@ static PassSwitch g_pass_in_level3[] {
     { &xoc::g_do_cfg_remove_empty_bb, },
     { &xoc::g_do_cfg_remove_unreach_bb, },
     { &xoc::g_do_cfg_remove_trampolin_bb, },
-    { &xoc::g_invert_branch_target, },
+    { &xoc::g_do_invert_brtgt, },
     { &xoc::g_do_cfg_remove_redundant_branch, },
     { &xoc::g_do_cfg_remove_trampolin_branch, },
     { &xoc::g_do_cfg_remove_redundant_label, },

@@ -110,4 +110,45 @@ bool verifyBROADCAST(IR const* ir, Region const* rg)
     return true;
 }
 
+
+bool verifyMaskOp(IR const* ir, Region const* rg)
+{
+    verifyGeneral(ir, rg);
+    TypeMgr const* tm = rg->getTypeMgr();
+    ASSERT0(tm);
+    DUMMYUSE(tm);
+    Type const* d = ir->getType();
+    ASSERT0_DUMMYUSE(d);
+    ASSERTN(ir->is_vec() || ir->is_tensor() || ir->is_any(),
+            ("mask operation should be vector or tensor type."));
+    IR const* op = MASKOP_op(ir);
+    ASSERT0(op);
+    ASSERTN(op->is_vec() || op->is_tensor() || op->is_any(),
+            ("masked operation should be vector or tensor type."));
+    return true;
+}
+
+
+bool verifyMaskSelectToRes(IR const* ir, Region const* rg)
+{
+    verifyGeneral(ir, rg);
+    TypeMgr const* tm = rg->getTypeMgr();
+    ASSERT0(tm);
+    DUMMYUSE(tm);
+    Type const* d = ir->getType();
+    ASSERT0_DUMMYUSE(d);
+    ASSERTN(ir->is_vec() || ir->is_tensor() || ir->is_any(),
+            ("mask operation should be vector or tensor type."));
+    IR const* op = MASKSELECTTORES_op(ir);
+    ASSERT0(op);
+    ASSERTN(op->is_vec() || op->is_tensor() || op->is_any(),
+            ("masked operation should be vector or tensor type."));
+    if (ir->getParent() != nullptr) {
+        ASSERTN(ir->getParent()->is_stmt(),
+                ("mask_select_to_res should be used to describe "
+                 "stmt's result"));
+    }
+    return true;
+}
+
 } //namespace xoc

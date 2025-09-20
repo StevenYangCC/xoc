@@ -37,6 +37,21 @@ static bool hasProp(IR const* ir)
            ir->is_rmw() || ir->hasSideEffect(false) || ir->isNoMove(false);
 }
 
+
+//
+//START DumpGRCtx
+//
+DumpGRCtx::DumpGRCtx(Region const* r, bool dump_inner)
+{
+    rg = r; cfg = r->getCFG(); tm = r->getTypeMgr();
+    dump_inner_region = dump_inner;
+}
+//END DumpGRCtx
+
+
+//
+//START GRDump
+//
 GRDump::GRDump(Region const* rg) : m_rg(rg)
 {
     ASSERT0(rg);
@@ -322,426 +337,615 @@ void GRDump::dumpPhi(IR const* ir, DumpGRCtx const* ctx) const
 }
 
 
-void GRDump::dumpIR(IR const* ir, DumpGRCtx const* ctx) const
+void GRDump::dumpST(IR const* ir, DumpGRCtx const* ctx) const
 {
     UINT dn = DUMP_INDENT_NUM;
-    if (!m_rg->isLogMgrInit() || ir == nullptr) { return; }
+    ASSERT0(m_rg->isLogMgrInit());
     xcom::DefFixedStrBuf buf;
     Type const* d = ir->getType();
-    switch (ir->getCode()) {
-    case IR_ST: {
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        buf.clean();
-        prt(m_lm, " %s = ", compositeName(ST_idinfo(ir)->get_name(), buf));
-        m_lm->incIndent(dn);
-        dumpIR(ST_rhs(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    }
-    case IR_STPR:
-        note(m_lm, "\n%s", IRNAME(ir));
-        prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, STPR_no(ir),
-            m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-        prt(m_lm, " = ");
-        m_lm->incIndent(dn);
-        dumpIR(STPR_rhs(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_SETELEM:
-        note(m_lm, "\n%s", IRNAME(ir));
-        prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, SETELEM_prno(ir),
-            m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-        prt(m_lm, " = ");
-        m_lm->incIndent(dn);
-        dumpIR(SETELEM_base(ir), ctx);
-        prt(m_lm, ",");
-        dumpIR(SETELEM_val(ir), ctx);
-        prt(m_lm, ",");
-        dumpIR(SETELEM_ofst(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_GETELEM:
-        note(m_lm, "\n%s", IRNAME(ir));
-        prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, GETELEM_prno(ir),
-            m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-        prt(m_lm, " = ");
-        m_lm->incIndent(dn);
-        dumpIR(GETELEM_base(ir), ctx);
-        prt(m_lm, ",");
-        dumpIR(GETELEM_ofst(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_STARRAY:
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        prt(m_lm, " = ");
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    buf.clean();
+    prt(m_lm, " %s = ", compositeName(ST_idinfo(ir)->get_name(), buf));
+    m_lm->incIndent(dn);
+    dumpIR(ST_rhs(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
 
-        m_lm->incIndent(dn);
-        dumpIR(ARR_base(ir), ctx);
-        prt(m_lm, ", ");
-        m_lm->decIndent(dn);
 
-        dumpArrSubList(ir, dn, ctx);
-        prt(m_lm, ", ");
+void GRDump::dumpLD(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
 
-        m_lm->incIndent(dn);
-        dumpIR(STARR_rhs(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_IST:
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        prt(m_lm, " = ");
-        m_lm->incIndent(dn);
-        dumpIRList(IST_base(ir), ctx);
-        prt(m_lm, ",");
-        dumpIRList(IST_rhs(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_LD: {
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        buf.clean();
-        prt(m_lm, " %s", compositeName(LD_idinfo(ir)->get_name(), buf));
-        break;
-    }
-    case IR_ILD:
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        prt(m_lm, " ");
-        m_lm->incIndent(dn);
-        dumpIRList(ILD_base(ir), ctx);
-        m_lm->decIndent(dn);
-        break;
-    SWITCH_CASE_READ_PR:
-        note(m_lm, "\n$%d:%s", PR_no(ir), m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-        break;
-    case IR_ID:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        buf.clean();
-        prt(m_lm, " %s", compositeName(ID_info(ir)->get_name(), buf));
-        break;
-    case IR_CONST:
-        dumpConst(ir, ctx);
-        break;
-    SWITCH_CASE_BIN:
-    SWITCH_CASE_UNA:
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-        prt(m_lm, " ");
-        m_lm->incIndent(dn);
-        for (UINT i = 0; i < IR_MAX_KID_NUM(ir); i++) {
-            IR * k = ir->getKid(i);
-            if (k == nullptr) { continue; }
-            if (i != 0) {
-                prt(m_lm, ", ");
-            }
-            dumpIRList(k, ctx);
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    buf.clean();
+    prt(m_lm, " %s", compositeName(LD_idinfo(ir)->get_name(), buf));
+}
+
+
+void GRDump::dumpILD(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    prt(m_lm, " ");
+    m_lm->incIndent(dn);
+    dumpIRList(ILD_base(ir), ctx);
+    m_lm->decIndent(dn);
+}
+
+
+void GRDump::dumpReadPR(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+    note(m_lm, "\n$%d:%s", PR_no(ir), m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+}
+
+
+void GRDump::dumpID(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    buf.clean();
+    prt(m_lm, " %s", compositeName(ID_info(ir)->get_name(), buf));
+}
+
+
+void GRDump::dumpBinAndUna(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+    prt(m_lm, " ");
+    m_lm->incIndent(dn);
+    for (UINT i = 0; i < IR_MAX_KID_NUM(ir); i++) {
+        IR * k = ir->getKid(i);
+        if (k == nullptr) { continue; }
+        if (i != 0) {
+            prt(m_lm, ", ");
         }
-        m_lm->decIndent(dn);
-        break;
-    case IR_IF:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
+        dumpIRList(k, ctx);
+    }
+    m_lm->decIndent(dn);
+}
 
-        m_lm->incIndent(dn);
-        dumpIRList(IF_det(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ")");
 
+void GRDump::dumpIF(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+
+    m_lm->incIndent(dn);
+    dumpIRList(IF_det(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ")");
+
+    note(m_lm, "\n{");
+    m_lm->incIndent(dn);
+    dumpIRList(IF_truebody(ir), ctx);
+    m_lm->decIndent(dn);
+    note(m_lm, "\n}");
+
+    if (IF_falsebody(ir)) {
+        note(m_lm, "\nelse");
         note(m_lm, "\n{");
         m_lm->incIndent(dn);
-        dumpIRList(IF_truebody(ir), ctx);
+        dumpIRList(IF_falsebody(ir), ctx);
         m_lm->decIndent(dn);
         note(m_lm, "\n}");
-
-        if (IF_falsebody(ir)) {
-            note(m_lm, "\nelse");
-            note(m_lm, "\n{");
-            m_lm->incIndent(dn);
-            dumpIRList(IF_falsebody(ir), ctx);
-            m_lm->decIndent(dn);
-            note(m_lm, "\n}");
-        }
-        prt(m_lm, ";");
-        break;
-    case IR_DO_WHILE:
-        note(m_lm, "\ndo");
-        dumpProp(ir, ctx);
-        prt(m_lm, " {");
-
-        m_lm->incIndent(dn);
-        dumpIRList(LOOP_body(ir), ctx);
-        m_lm->decIndent(dn);
-
-        note(m_lm, "\n} while (");
-        m_lm->incIndent(dn);
-        dumpIRList(LOOP_det(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ");");
-        break;
-    case IR_WHILE_DO:
-        note(m_lm, "\nwhile");
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
-
-        m_lm->incIndent(dn);
-        dumpIRList(LOOP_det(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ") {");
-
-        m_lm->incIndent(dn);
-        dumpIRList(LOOP_body(ir), ctx);
-        m_lm->decIndent(dn);
-        note(m_lm, "\n};");
-        break;
-    case IR_DO_LOOP:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
-
-        m_lm->incIndent(dn);
-        note(m_lm, "\n//iv");
-        dumpIRList(LOOP_iv(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ",");
-
-        m_lm->incIndent(dn);
-        note(m_lm, "\n//init");
-        dumpIRList(LOOP_init(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ",");
-
-        m_lm->incIndent(dn);
-        note(m_lm, "\n//det");
-        dumpIRList(LOOP_det(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ",");
-
-        m_lm->incIndent(dn);
-        note(m_lm, "\n//step");
-        dumpIRList(LOOP_step(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ")");
-
-        note(m_lm, "\n {");
-        m_lm->incIndent(dn);
-        dumpIRList(LOOP_body(ir), ctx);
-        m_lm->decIndent(dn);
-
-        note(m_lm, "\n};");
-        break;
-    SWITCH_CASE_LOOP_ITER_CFS_OP:
-        note(m_lm, "\n%s;", IRNAME(ir));
-        break;
-    case IR_RETURN:
-        note(m_lm, "\n%s", IRNAME(ir));
-        prt(m_lm, " ");
-        m_lm->incIndent(dn);
-        dumpIR(RET_exp(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_GOTO:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " ");
-        dumpLabelName(ir->getLabel(), m_rm, true);
-        prt(m_lm, ";");
-        break;
-    case IR_IGOTO:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
-
-        m_lm->incIndent(dn);
-        dumpIRList(IGOTO_vexp(ir), ctx);
-        prt(m_lm, ")");
-        m_lm->decIndent(dn);
-
-        m_lm->incIndent(dn);
-        for (IR * c = IGOTO_case_list(ir); c != nullptr; c = c->get_next()) {
-            dumpIR(c, ctx);
-            prt(m_lm, ", ");
-        }
-        m_lm->decIndent(dn);
-        prt(m_lm, ";");
-        break;
-    case IR_LABEL: {
-            LabelInfo const* li = LAB_lab(ir);
-            note(m_lm, "\n");
-            xoc::dumpLabelDecl(li, m_rm, true);
-        }
-        prt(m_lm, ";");
-        break;
-    case IR_SELECT: //formulized log_OR_exp?exp:cond_exp
-        note(m_lm, "\nselect:%s", m_tm->dump_type(d, buf));
-        dumpProp(ir, ctx);
-
-        m_lm->incIndent(dn);
-        dumpIRList(SELECT_det(ir), ctx);
-        prt(m_lm, ",");
-        m_lm->decIndent(dn);
-
-        m_lm->incIndent(dn);
-        dumpIRList(SELECT_trueexp(ir), ctx);
-        prt(m_lm, ",");
-        m_lm->decIndent(dn);
-
-        m_lm->incIndent(dn);
-        dumpIRList(SELECT_falseexp(ir), ctx);
-        m_lm->decIndent(dn);
-        break;
-    case IR_LDA: {
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-        prt(m_lm, " %s", compositeName(LDA_idinfo(ir)->get_name(), buf));
-        break;
     }
-    case IR_PHI:
-        dumpPhi(ir, ctx);
-        break;
-    case IR_SWITCH:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
-        m_lm->incIndent(dn);
-        dumpIRList(SWITCH_vexp(ir), ctx);
-        prt(m_lm, ") ");
-        m_lm->decIndent(dn);
-        if (SWITCH_deflab(ir) != nullptr) {
-            note(m_lm, "\ndefault ");
-            dumpLabelName(ir->getLabel(), m_rm, true);
-            prt(m_lm, ", ");
-        }
+    prt(m_lm, ";");
+}
 
-        for (IR * c = SWITCH_case_list(ir); c != nullptr; c = c->get_next()) {
-            dumpIR(c, ctx);
-            prt(m_lm, ", ");
-        }
 
-        if (SWITCH_body(ir) != nullptr) {
-            note(m_lm, "\n{ ");
-            m_lm->incIndent(dn);
-            dumpIRList(SWITCH_body(ir), ctx);
-            m_lm->decIndent(dn);
-            note(m_lm, "\n}");
-        }
-        prt(m_lm, ";");
-        break;
-    case IR_CASE:
-        ASSERT0(CASE_vexp(ir));
-        ASSERT0(CASE_lab(ir));
-        note(m_lm, "\ncase");
-        dumpProp(ir, ctx);
-        prt(m_lm, " ");
-        m_lm->incIndent(dn);
-        dumpIRList(CASE_vexp(ir), ctx);
+void GRDump::dumpDoWhile(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\ndo");
+    dumpProp(ir, ctx);
+    prt(m_lm, " {");
+
+    m_lm->incIndent(dn);
+    dumpIRList(LOOP_body(ir), ctx);
+    m_lm->decIndent(dn);
+
+    note(m_lm, "\n} while (");
+    m_lm->incIndent(dn);
+    dumpIRList(LOOP_det(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ");");
+}
+
+
+void GRDump::dumpWhileDo(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\nwhile");
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+
+    m_lm->incIndent(dn);
+    dumpIRList(LOOP_det(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ") {");
+
+    m_lm->incIndent(dn);
+    dumpIRList(LOOP_body(ir), ctx);
+    m_lm->decIndent(dn);
+    note(m_lm, "\n};");
+}
+
+
+void GRDump::dumpDoLoop(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+
+    m_lm->incIndent(dn);
+    note(m_lm, "\n//iv");
+    dumpIRList(LOOP_iv(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ",");
+
+    m_lm->incIndent(dn);
+    note(m_lm, "\n//init");
+    dumpIRList(LOOP_init(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ",");
+
+    m_lm->incIndent(dn);
+    note(m_lm, "\n//det");
+    dumpIRList(LOOP_det(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ",");
+
+    m_lm->incIndent(dn);
+    note(m_lm, "\n//step");
+    dumpIRList(LOOP_step(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ")");
+
+    note(m_lm, "\n {");
+    m_lm->incIndent(dn);
+    dumpIRList(LOOP_body(ir), ctx);
+    m_lm->decIndent(dn);
+
+    note(m_lm, "\n};");
+}
+
+
+void GRDump::dumpLoopIterCFS(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s;", IRNAME(ir));
+}
+
+
+void GRDump::dumpReturn(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    prt(m_lm, " ");
+    m_lm->incIndent(dn);
+    dumpIR(RET_exp(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpGoto(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " ");
+    dumpLabelName(ir->getLabel(), m_rm, true);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpIgoto(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+
+    m_lm->incIndent(dn);
+    dumpIRList(IGOTO_vexp(ir), ctx);
+    prt(m_lm, ")");
+    m_lm->decIndent(dn);
+
+    m_lm->incIndent(dn);
+    for (IR * c = IGOTO_case_list(ir); c != nullptr; c = c->get_next()) {
+        dumpIR(c, ctx);
         prt(m_lm, ", ");
-        dumpLabelName(ir->getLabel(), m_rm, true);
-        m_lm->decIndent(dn);
-        break;
-    case IR_ARRAY:
-        note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
-        dumpOffset(ir);
-        dumpProp(ir, ctx);
-
-        m_lm->incIndent(dn);
-        dumpIR(ARR_base(ir), ctx);
-        prt(m_lm, ", ");
-        m_lm->decIndent(dn);
-
-        dumpArrSubList(ir, dn, ctx);
-        break;
-    SWITCH_CASE_CALL: {
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " ");
-        if (ir->hasReturnValue()) {
-            prt(m_lm, "%s%d:%s = ", PR_TYPE_CHAR, CALL_prno(ir),
-                m_tm->dump_type(d, buf));
-        }
-        if (ir->is_icall()) {
-            m_lm->incIndent(dn);
-            dumpIR(ICALL_callee(ir), ctx);
-            prt(m_lm, ", ");
-            m_lm->decIndent(dn);
-        } else {
-            buf.clean();
-            prt(m_lm, "%s", compositeName(CALL_idinfo(ir)->get_name(), buf));
-        }
-        prt(m_lm, "(");
-        m_lm->incIndent(dn);
-        for (IR * p = CALL_arg_list(ir); p != nullptr; p = p->get_next()) {
-            if (p != CALL_arg_list(ir)) {
-                prt(m_lm, ",");
-            }
-            dumpIR(p, ctx);
-        }
-        m_lm->decIndent(dn);
-        prt(m_lm, ")");
-        prt(m_lm, ";");
-        break;
     }
-    SWITCH_CASE_CONDITIONAL_BRANCH_OP:
-        note(m_lm, "\n%s", IRNAME(ir));
-        dumpProp(ir, ctx);
-        prt(m_lm, " (");
-        m_lm->incIndent(dn);
-        dumpIRList(BR_det(ir), ctx);
-        m_lm->decIndent(dn);
-        prt(m_lm, "), ");
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpLabel(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    LabelInfo const* li = LAB_lab(ir);
+    note(m_lm, "\n");
+    xoc::dumpLabelDecl(li, m_rm, true);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpSelect(IR const* ir, DumpGRCtx const* ctx) const
+{
+    //Formulized log_OR_exp?exp:cond_exp
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\nselect:%s", m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+
+    m_lm->incIndent(dn);
+    dumpIRList(SELECT_det(ir), ctx);
+    prt(m_lm, ",");
+    m_lm->decIndent(dn);
+
+    m_lm->incIndent(dn);
+    dumpIRList(SELECT_trueexp(ir), ctx);
+    prt(m_lm, ",");
+    m_lm->decIndent(dn);
+
+    m_lm->incIndent(dn);
+    dumpIRList(SELECT_falseexp(ir), ctx);
+    m_lm->decIndent(dn);
+}
+
+
+void GRDump::dumpLda(IR const* ir, DumpGRCtx const* ctx) const
+{
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+ 
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    prt(m_lm, " %s", compositeName(LDA_idinfo(ir)->get_name(), buf));
+}
+
+
+void GRDump::dumpSwitch(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+    m_lm->incIndent(dn);
+    dumpIRList(SWITCH_vexp(ir), ctx);
+    prt(m_lm, ") ");
+    m_lm->decIndent(dn);
+    if (SWITCH_deflab(ir) != nullptr) {
+        note(m_lm, "\ndefault ");
         dumpLabelName(ir->getLabel(), m_rm, true);
-        prt(m_lm, ";");
-        break;
-    case IR_REGION:
-        ASSERT0(REGION_ru(ir));
-        if (ctx != nullptr && ctx->dump_inner_region) {
-            //m_lm->incIndent(dn);
-            GRDump gd(REGION_ru(ir));
-            gd.dumpRegion(ctx->dump_inner_region);
-            //m_lm->decIndent(dn);
-        } else {
-            note(m_lm, "\nregion ");
-            switch (REGION_ru(ir)->getRegionType()) {
-            case REGION_PROGRAM: prt(m_lm, "program "); break;
-            case REGION_BLACKBOX: prt(m_lm, "blackbox "); break;
-            case REGION_FUNC: prt(m_lm, "func "); break;
-            case REGION_INNER: prt(m_lm, "inner "); break;
-            default: UNREACHABLE(); //TODO
-            }
-            if (REGION_ru(ir)->getRegionVar() != nullptr) {
-                prt(m_lm, "%s ",
-                    SYM_name(REGION_ru(ir)->getRegionVar()->get_name()));
-            }
+        prt(m_lm, ", ");
+    }
+
+    for (IR * c = SWITCH_case_list(ir); c != nullptr; c = c->get_next()) {
+        dumpIR(c, ctx);
+        prt(m_lm, ", ");
+    }
+
+    if (SWITCH_body(ir) != nullptr) {
+        note(m_lm, "\n{ ");
+        m_lm->incIndent(dn);
+        dumpIRList(SWITCH_body(ir), ctx);
+        m_lm->decIndent(dn);
+        note(m_lm, "\n}");
+    }
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpCase(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    ASSERT0(CASE_vexp(ir));
+    ASSERT0(CASE_lab(ir));
+    note(m_lm, "\ncase");
+    dumpProp(ir, ctx);
+    prt(m_lm, " ");
+    m_lm->incIndent(dn);
+    dumpIRList(CASE_vexp(ir), ctx);
+    prt(m_lm, ", ");
+    dumpLabelName(ir->getLabel(), m_rm, true);
+    m_lm->decIndent(dn);
+}
+
+
+void GRDump::dumpArray(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+
+    m_lm->incIndent(dn);
+    dumpIR(ARR_base(ir), ctx);
+    prt(m_lm, ", ");
+    m_lm->decIndent(dn);
+
+    dumpArrSubList(ir, dn, ctx);
+}
+
+
+void GRDump::dumpCall(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " ");
+    if (ir->hasReturnValue()) {
+        prt(m_lm, "%s%d:%s = ", PR_TYPE_CHAR, CALL_prno(ir),
+            m_tm->dump_type(d, buf));
+    }
+    if (ir->is_icall()) {
+        m_lm->incIndent(dn);
+        dumpIR(ICALL_callee(ir), ctx);
+        prt(m_lm, ", ");
+        m_lm->decIndent(dn);
+    } else {
+        buf.clean();
+        prt(m_lm, "%s", compositeName(CALL_idinfo(ir)->get_name(), buf));
+    }
+    prt(m_lm, "(");
+    m_lm->incIndent(dn);
+    for (IR * p = CALL_arg_list(ir); p != nullptr; p = p->get_next()) {
+        if (p != CALL_arg_list(ir)) {
+            prt(m_lm, ",");
         }
-        prt(m_lm, ";");
-        break;
-    case IR_UNDEF:
-        note(m_lm, "\nundef!");
-        break;
-    default:
-        dumpExtOp(ir, ctx);
-        break;
+        dumpIR(p, ctx);
+    }
+    m_lm->decIndent(dn);
+    prt(m_lm, ")");
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpCondBr(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    note(m_lm, "\n%s", IRNAME(ir));
+    dumpProp(ir, ctx);
+    prt(m_lm, " (");
+    m_lm->incIndent(dn);
+    dumpIRList(BR_det(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, "), ");
+    dumpLabelName(ir->getLabel(), m_rm, true);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpRegion(IR const* ir, DumpGRCtx const* ctx) const
+{
+    //UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    ASSERT0(REGION_ru(ir));
+    if (ctx != nullptr && ctx->dump_inner_region) {
+        //m_lm->incIndent(dn);
+        GRDump gd(REGION_ru(ir));
+        gd.dumpRegion(ctx->dump_inner_region);
+        //m_lm->decIndent(dn);
+    } else {
+        note(m_lm, "\nregion ");
+        switch (REGION_ru(ir)->getRegionType()) {
+        case REGION_PROGRAM: prt(m_lm, "program "); break;
+        case REGION_BLACKBOX: prt(m_lm, "blackbox "); break;
+        case REGION_FUNC: prt(m_lm, "func "); break;
+        case REGION_INNER: prt(m_lm, "inner "); break;
+        default: UNREACHABLE(); //TODO
+        }
+        if (REGION_ru(ir)->getRegionVar() != nullptr) {
+            prt(m_lm, "%s ",
+                SYM_name(REGION_ru(ir)->getRegionVar()->get_name()));
+        }
+    }
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpUndef(IR const* ir, DumpGRCtx const* ctx) const
+{
+    note(m_lm, "\nundef!");
+}
+
+
+void GRDump::dumpIST(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    prt(m_lm, " = ");
+    m_lm->incIndent(dn);
+    dumpIRList(IST_base(ir), ctx);
+    prt(m_lm, ",");
+    dumpIRList(IST_rhs(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpStArray(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+
+    note(m_lm, "\n%s:%s", IRNAME(ir), m_tm->dump_type(d, buf));
+    dumpOffset(ir);
+    dumpProp(ir, ctx);
+    prt(m_lm, " = ");
+
+    m_lm->incIndent(dn);
+    dumpIR(ARR_base(ir), ctx);
+    prt(m_lm, ", ");
+    m_lm->decIndent(dn);
+
+    dumpArrSubList(ir, dn, ctx);
+    prt(m_lm, ", ");
+
+    m_lm->incIndent(dn);
+    dumpIR(STARR_rhs(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpGetelem(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+    note(m_lm, "\n%s", IRNAME(ir));
+    prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, GETELEM_prno(ir),
+        m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+    prt(m_lm, " = ");
+    m_lm->incIndent(dn);
+    dumpIR(GETELEM_base(ir), ctx);
+    prt(m_lm, ",");
+    dumpIR(GETELEM_ofst(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpSetelem(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+    note(m_lm, "\n%s", IRNAME(ir));
+    prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, SETELEM_prno(ir),
+        m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+    prt(m_lm, " = ");
+    m_lm->incIndent(dn);
+    dumpIR(SETELEM_base(ir), ctx);
+    prt(m_lm, ",");
+    dumpIR(SETELEM_val(ir), ctx);
+    prt(m_lm, ",");
+    dumpIR(SETELEM_ofst(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpStpr(IR const* ir, DumpGRCtx const* ctx) const
+{
+    UINT dn = DUMP_INDENT_NUM;
+    ASSERT0(m_rg->isLogMgrInit());
+    xcom::DefFixedStrBuf buf;
+    Type const* d = ir->getType();
+    note(m_lm, "\n%s", IRNAME(ir));
+    prt(m_lm, " %s%d:%s", PR_TYPE_CHAR, STPR_no(ir),
+        m_tm->dump_type(d, buf));
+    dumpProp(ir, ctx);
+    prt(m_lm, " = ");
+    m_lm->incIndent(dn);
+    dumpIR(STPR_rhs(ir), ctx);
+    m_lm->decIndent(dn);
+    prt(m_lm, ";");
+}
+
+
+void GRDump::dumpIR(IR const* ir, DumpGRCtx const* ctx) const
+{
+    if (!m_rg->isLogMgrInit() || ir == nullptr) { return; }
+    switch (ir->getCode()) {
+    case IR_ST: dumpST(ir, ctx); return;
+    case IR_STPR: dumpStpr(ir, ctx); return;
+    case IR_SETELEM: dumpSetelem(ir, ctx); return;
+    case IR_GETELEM: dumpGetelem(ir, ctx); return;
+    case IR_STARRAY: dumpStArray(ir, ctx); return;
+    case IR_IST: dumpIST(ir, ctx); return;
+    case IR_LD: dumpLD(ir, ctx); return;
+    case IR_ILD: dumpILD(ir, ctx); return;
+    SWITCH_CASE_READ_PR: dumpReadPR(ir, ctx); return;
+    case IR_ID: dumpID(ir, ctx); return;
+    case IR_CONST: dumpConst(ir, ctx); return;
+    SWITCH_CASE_BIN:
+    SWITCH_CASE_UNA: dumpBinAndUna(ir, ctx); return;
+    case IR_IF: dumpIF(ir, ctx); return;
+    case IR_DO_WHILE: dumpDoWhile(ir, ctx); return;
+    case IR_WHILE_DO: dumpWhileDo(ir, ctx); return;
+    case IR_DO_LOOP: dumpDoLoop(ir, ctx); return;
+    SWITCH_CASE_LOOP_ITER_CFS_OP: dumpLoopIterCFS(ir, ctx); return;
+    case IR_RETURN: dumpReturn(ir, ctx); return;
+    case IR_GOTO: dumpGoto(ir, ctx); return;
+    case IR_IGOTO: dumpIgoto(ir, ctx); return;
+    case IR_LABEL: dumpLabel(ir, ctx); return;
+    case IR_SELECT: dumpSelect(ir, ctx); return;
+    case IR_LDA: dumpLda(ir, ctx); return;
+    case IR_PHI: dumpPhi(ir, ctx); return;
+    case IR_SWITCH: dumpSwitch(ir, ctx); return;
+    case IR_CASE: dumpCase(ir, ctx); return;
+    case IR_ARRAY: dumpArray(ir, ctx); return;
+    SWITCH_CASE_CALL:  dumpCall(ir, ctx); return;
+    SWITCH_CASE_CONDITIONAL_BRANCH_OP: dumpCondBr(ir, ctx); return;
+    case IR_REGION: dumpRegion(ir, ctx); return;
+    case IR_UNDEF: dumpUndef(ir, ctx); return;
+    default: dumpExtOp(ir, ctx); return;
     }
 }
 
@@ -827,8 +1031,8 @@ void GRDump::dumpRegion(bool dump_inner_region) const
     }
     if (m_rg->getRegionVar() != nullptr) {
         xcom::DefFixedStrBuf buf;
-        prt(m_rg, "%s ", GRDump::compositeName(
-                         m_rg->getRegionVar()->get_name(), buf));
+        prt(m_rg, "%s ",
+            GRDump::compositeName(m_rg->getRegionVar()->get_name(), buf));
     }
     prt(m_rg, "(");
     m_rg->dumpParameter();
@@ -837,9 +1041,7 @@ void GRDump::dumpRegion(bool dump_inner_region) const
     m_lm->incIndent(DUMP_INDENT_NUM);
     m_rg->dumpVarTab();
     if (!m_rg->is_blackbox()) {
-        DumpGRCtx ctx;
-        ctx.dump_inner_region = dump_inner_region;
-        ctx.cfg = m_cfg;
+        DumpGRCtx ctx(m_rg, dump_inner_region);
         if (m_rg->getIRList() != nullptr) {
             dumpIRList(m_rg->getIRList(), &ctx);
         } else {
@@ -849,8 +1051,6 @@ void GRDump::dumpRegion(bool dump_inner_region) const
     m_lm->decIndent(DUMP_INDENT_NUM);
     note(m_rg, "\n}");
 }
-
-
-
+//END GRDump
 
 } //namespace xoc

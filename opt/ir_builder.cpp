@@ -145,6 +145,17 @@ IR * Region::dupIR(IR const* src) const
 }
 
 
+IR * Region::dupIsomoStmtExceptRHS(IR const* ir)
+{
+    IR * placeholder = getIRMgr()->buildImmInt(
+        0, getTypeMgr()->getHostIntType());
+    IR * stmt = dupIsomoStmt(ir, placeholder);
+    stmt->setRHS(nullptr);
+    freeIRTree(placeholder);
+    return stmt;
+}
+
+
 IR * Region::dupIsomoExpTree(IR const* ir)
 {
     switch (ir->getCode()) {
@@ -171,13 +182,12 @@ IR * Region::dupIsomoExpTree(IR const* ir)
 
 IR * Region::dupIsomoStmt(IR const* ir, IR * rhs)
 {
-    IR * stmt = nullptr;
     switch (ir->getCode()) {
     case IR_STARRAY: {
         //Prepare base and subscript expression list.
         IR * newbase = dupIRTree(ir->getBase());
         IR * newsublist = dupIRTreeList(ARR_sub_list(ir));
-        stmt = getIRMgr()->buildStoreArray(
+        IR * stmt = getIRMgr()->buildStoreArray(
             newbase, newsublist, ir->getType(), ARR_elemtype(ir),
             ((CArray*)ir)->getDimNum(), ARR_elem_num_buf(ir), rhs);
         stmt->setOffset(ir->getOffset());
@@ -186,33 +196,69 @@ IR * Region::dupIsomoStmt(IR const* ir, IR * rhs)
     }
     case IR_IST: {
         IR * newbase = dupIRTree(ir->getBase());
-        stmt = getIRMgr()->buildIStore(newbase, rhs, ir->getOffset(),
-                                       ir->getType());
+        IR * stmt = getIRMgr()->buildIStore(
+            newbase, rhs, ir->getOffset(), ir->getType());
         stmt->copyRef(ir, this);
         return stmt;
     }
-    case IR_ST:
-        stmt = getIRMgr()->buildStore(ST_idinfo(ir), ir->getType(),
-                                      ir->getOffset(), rhs);
+    case IR_ST: {
+        IR * stmt = getIRMgr()->buildStore(
+            ST_idinfo(ir), ir->getType(), ir->getOffset(), rhs);
         stmt->copyRef(ir, this);
         return stmt;
-    case IR_ARRAY: {
-        stmt = CStArray::dupIRTreeByExp(ir, rhs, this);
+    }
+    case IR_STPR: {
+        IR * stmt = getIRMgr()->buildStorePR(ir->getPrno(), ir->getType(), rhs);
+        stmt->copyRef(ir, this);
+        return stmt;
+    }
+    case IR_ARRAY:
         //Stmt's ref already copied.
-        return stmt;
-    }
+        return CStArray::dupIRTreeByExp(ir, rhs, this);
     case IR_ILD:
-        stmt = CISt::dupIRTreeByExp(ir, rhs, this);
         //Stmt's ref already copied.
-        return stmt;
+        return CISt::dupIRTreeByExp(ir, rhs, this);
     case IR_LD:
-        stmt = CSt::dupIRTreeByExp(ir, rhs, this);
         //Stmt's ref already copied.
-        return stmt;
+        return CSt::dupIRTreeByExp(ir, rhs, this);
     case IR_PR:
-        stmt = CStpr::dupIRTreeByExp(ir, rhs, this);
+        //Stmt's ref already copied.
+        return CStpr::dupIRTreeByExp(ir, rhs, this);
+    case IR_VST: {
+        IRMgrExt * irmgrext = (IRMgrExt*)getIRMgr();
+        IR * stmt = irmgrext->buildVStore(
+            VST_idinfo(ir), ir->getOffset(), rhs,
+            dupIRTreeList(VST_dummyuse(ir)), ir->getType());
+        stmt->copyRef(ir, this);
         return stmt;
-    default: UNREACHABLE(); //Unsupport.
+    }
+    case IR_VIST: {
+        IRMgrExt * irmgrext = (IRMgrExt*)getIRMgr();
+        IR * stmt = irmgrext->buildVIStore(
+            dupIRTree(ir->getBase()), ir->getOffset(), rhs,
+            dupIRTreeList(VIST_dummyuse(ir)), ir->getType());
+        stmt->copyRef(ir, this);
+        return stmt;
+    }
+    case IR_VSTPR: {
+        IRMgrExt * irmgrext = (IRMgrExt*)getIRMgr();
+        IR * stmt = irmgrext->buildVStorePR(
+            ir->getPrno(), rhs, dupIRTreeList(VSTPR_dummyuse(ir)),
+            ir->getType());
+        stmt->copyRef(ir, this);
+        return stmt;
+    }
+    default: return dupIsomoExtStmt(ir, rhs);
+    }
+    return nullptr;
+}
+
+
+IR * Region::dupIsomoExtStmt(IR const* ir, IR * rhs)
+{
+    switch (ir->getCode()) {
+    case IR_UNDEF:
+    default: ASSERTN(0, ("Target Dependent Code"));
     }
     return nullptr;
 }

@@ -111,12 +111,49 @@ void dumpVSTPR(IR const* ir, Region const* rg, IRDumpCtx<> & ctx)
          xtm->dump_type(d, buf));
     DUMPADDR(ir);
     prt(rg, "%s", ctx.attr);
-    if (dump_kid) {
-        lm->incIndent(ctx.dn);
-        dumpIRList(VSTPR_rhs(ir), rg, nullptr, ctx.dumpflag);
-        dumpIRList(VSTPR_dummyuse(ir), rg, (CHAR*)" dummyuse", ctx.dumpflag);
-        lm->decIndent(ctx.dn);
-    }
+    if (!dump_kid) { return; }
+    lm->incIndent(ctx.dn);
+    dumpIRList(VSTPR_rhs(ir), rg, nullptr, ctx.dumpflag);
+    dumpIRList(VSTPR_dummyuse(ir), rg, (CHAR*)" dummyuse", ctx.dumpflag);
+    lm->decIndent(ctx.dn);
+}
+
+
+void dumpMaskOp(IR const* ir, Region const* rg, IRDumpCtx<> & ctx)
+{
+    bool dump_addr = ctx.dumpflag.have(IR_DUMP_ADDR);
+    bool dump_kid = ctx.dumpflag.have(IR_DUMP_KID);
+    StrBuf buf(64);
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    LogMgr * lm = rg->getLogMgr();
+    note(rg, "%s:%s", IRNAME(ir), xtm->dump_type(d, buf));
+    DUMPADDR(ir);
+    prt(rg, "%s", ctx.attr);
+    if (!dump_kid) { return; }
+    lm->incIndent(ctx.dn);
+    dumpIRList(MASKOP_op(ir), rg, nullptr, ctx.dumpflag);
+    dumpIRList(MASKOP_mask(ir), rg, (CHAR*)" mask", ctx.dumpflag);
+    lm->decIndent(ctx.dn);
+}
+
+
+void dumpMaskSelectToRes(IR const* ir, Region const* rg, IRDumpCtx<> & ctx)
+{
+    bool dump_addr = ctx.dumpflag.have(IR_DUMP_ADDR);
+    bool dump_kid = ctx.dumpflag.have(IR_DUMP_KID);
+    StrBuf buf(64);
+    TypeMgr const* xtm = rg->getTypeMgr();
+    Type const* d = ir->getType();
+    LogMgr * lm = rg->getLogMgr();
+    note(rg, "%s:%s", IRNAME(ir), xtm->dump_type(d, buf));
+    DUMPADDR(ir);
+    prt(rg, "%s", ctx.attr);
+    if (!dump_kid) { return; }
+    lm->incIndent(ctx.dn);
+    dumpIRList(MASKSELECTTORES_op(ir), rg, nullptr, ctx.dumpflag);
+    dumpIRList(MASKSELECTTORES_mask(ir), rg, (CHAR*)" mask", ctx.dumpflag);
+    lm->decIndent(ctx.dn);
 }
 
 } //namespace xoc

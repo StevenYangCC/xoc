@@ -124,20 +124,6 @@ public:
 };
 
 
-class LDAActMgr : public ActMgr {
-    COPY_CONSTRUCTOR(LDAActMgr);
-public:
-    LDAActMgr(Region const* rg) : ActMgr(rg) {}
-
-    //Dump misc action that related to given ir.
-    //format: the reason.
-    void dumpAct(CHAR const* format, ...) const;
-    void dumpAct(IR const* ir, CHAR const* format, ...) const;
-    void dumpLinRepAct(IVLinearRep const& linrep,
-                       CHAR const* format, ...) const;
-};
-
-
 //The class represents loop dependence analysis context.
 class LoopDepCtx {
     COPY_CONSTRUCTOR(LoopDepCtx);
@@ -180,9 +166,10 @@ protected:
     SMemPool * m_ir2ldi_pool;
     SMemPool * m_mddef2ldi_pool;
     LI<IRBB> const* m_li;
+    ActMgr * m_am;
+    Region const* m_rg;
     ConstIRTab m_analyzed_irs; //record all IRs that has analyzed.
     IR2FirstTab m_ir2firsttab;
-    LDAActMgr m_am;
 protected:
     LoopDepInfo * allocLoopDepInfo();
     FirstTab * allocFirstTab();
@@ -190,7 +177,7 @@ protected:
     MDDef2LDITab * allocMDDef2LDI();
     IR2LDITab * allocIR2LDI();
 public:
-    LoopDepCtx(Region const* rg, LI<IRBB> const* li);
+    LoopDepCtx(Region const* rg, LI<IRBB> const* li, ActMgr * am);
     ~LoopDepCtx();
 
     //Record 'ir' as the IR that has participated the analysis.
@@ -199,10 +186,17 @@ public:
     //The function generates an unqiue LoopDepInfo according to 'ldi'.
     LoopDepInfo const* appendLoopDepInfo(LoopDepInfo const& ldi);
 
-    void dump() const { m_am.dump(); }
+    //Dump misc action that related to given ir.
+    //format: the reason.
+    void dumpAct(CHAR const* format, ...) const;
+    void dumpAct(IR const* ir, CHAR const* format, ...) const;
+    void dumpLinRepAct(IVLinearRep const& linrep,
+                       CHAR const* format, ...) const;
+    void dump() const { m_am->dump(); }
 
     LI<IRBB> const* getLI() const { return m_li; }
-    LDAActMgr & getActMgr() { return m_am; }
+    ActMgr * getActMgr() const { return m_am; }
+    Region const* getRegion() const { return m_rg; }
 
     //Return true 'ir' has analyzed.
     bool is_contain(IR const* ir) const { return m_analyzed_irs.find(ir); }

@@ -261,6 +261,10 @@ static SectionDesc const g_section_desc[] = {
 
 //Record Sym of section name.
 static Sym const* g_section_name_sym[SH_TYPE_MAX_NUM] = {0};
+//Record '.text.' name.
+static CHAR const g_subtext_sh_pre[] = SUBTEXT_SH_PRE;
+//Record '.rela.text.' name.
+static CHAR const g_rela_sh_name[] = RELA_SH_NAME;
 
 
 void ELFMgr::initSectionInfo()
@@ -978,7 +982,7 @@ size_t ELFMgr::getSectHeaderIdx(ELFSHdr const* sh) const
 EM_STATUS ELFMgr::readSymTabContent()
 {
     for (ELFSHdr * p = m_symtab_sect_list.get_head();
-         p != nullptr; p  = m_symtab_sect_list.get_next()) {
+         p != nullptr; p = m_symtab_sect_list.get_next()) {
         if (EM_SUCC != readSectContent(getSectHeaderIdx(p))) {
             return EM_NO_SYM_TAB;
         }
@@ -2566,11 +2570,11 @@ SECTION_TYPE ELFMgr::getSectionType(Sym const* sect_name)
 {
     ASSERT0(sect_name);
     if (::strncmp(sect_name->getStr(), SUBTEXT_SH_PRE,
-                  ::strlen(SUBTEXT_SH_PRE)) == 0) {
+                  sizeof(g_subtext_sh_pre) - 1) == 0) {
         return SH_TYPE_SUBTEXT;
     }
     if (::strncmp(sect_name->getStr(), RELA_SH_NAME,
-                  ::strlen(RELA_SH_NAME)) == 0) {
+                  sizeof(g_rela_sh_name) - 1) == 0) {
         return SH_TYPE_RELA;
     }
     ASSERT0(m_sect_name_type_map.find(sect_name));
@@ -4007,10 +4011,11 @@ void ELFMgr::setSection(SECTION_TYPE sect_type,
     //Re-set info.
     SECTINFO_type(si) = sect_type;
     SECTINFO_name(si) = sym_name;
-    SECTINFO_ph_type(si) = SECTDESC_ph_type(&sect_desc);
+    SECTINFO_ph_type(si) = providePhType(sect_desc);
     SECTINFO_shdr_type(si) = SECTDESC_shdr_type(&sect_desc);
     SECTINFO_flag(si) = getSectionFlags(&sect_desc);
-    SECTINFO_align(si) = SECTDESC_align(&sect_desc);
+    SECTINFO_align(si) =
+        MAX(SECTDESC_align(&sect_desc), provideSectAlign(sect_desc));
     SECTINFO_entry_size(si) = SECTDESC_entry_sz(&sect_desc);
     SECTINFO_index(si) = sect_index;
 }
@@ -4024,10 +4029,11 @@ void ELFMgr::setSectionImpl(MOD SectionInfo * si, SECTION_TYPE sect_type)
 
     SECTINFO_type(si) = sect_type;
     SECTINFO_name(si) = getSectionName(sect_type);
-    SECTINFO_ph_type(si) = SECTDESC_ph_type(&sect_desc);
+    SECTINFO_ph_type(si) = providePhType(sect_desc);
     SECTINFO_shdr_type(si) = SECTDESC_shdr_type(&sect_desc);
     SECTINFO_flag(si) = getSectionFlags(&sect_desc);
-    SECTINFO_align(si) = SECTDESC_align(&sect_desc);
+    SECTINFO_align(si) =
+        MAX(SECTDESC_align(&sect_desc), provideSectAlign(sect_desc));
     SECTINFO_entry_size(si) = SECTDESC_entry_sz(&sect_desc);
     SECTINFO_index(si) = 0;
 }
@@ -4866,52 +4872,12 @@ bool ELFMgr::processSpecialShndx(ELFHdr & hdr, MOD SymbolInfo * symbol_info)
 }
 
 
-void ELFMgr::getSymbolInfoAttachInfo(MOD SymbolInfo * cur_symbol_info)
-{
-    //Multi-SymbolInfo with function type may be merged into a text section
-    //in ELF with relocatable file. And these functions may directly call or
-    //jump to other function in the same text section. Thus there is an order
-    //between these functions. When collected SymbolInfo, the AttachInfo is
-    //used to record these order relationship.
-    //e.g.:
-    //Symbol table '.symtab' contains x entryies:
-    //  Num:    Value    Size    Type    Bind    Vis    Ndx    Name
-    //    0:    000000    0      NOTYPE  LOCAL  DEFAULT UND
-    //    ...   ...
-    //    6:    000000   152     FUNC    GLOBAL DEFAULT  4    slave___divwu
-    //    7:    000098   92      FUNC    GLOBAL DEFAULT  4    slave___divw
-    //    ...   ...
-    //When merged or copied FunctionInfo, the relationship between function
-    //'slave___divwu' and 'slave___divw' should be keep. Since these two
-    //functions may jump to each other via offset that encode in instruction.
-    ASSERT0(cur_symbol_info);
-
-    //Iterate through the SymbolInfo vector in reverse order. The first
-    //SymbolInfo is UNDEF in '.symtab' in ELF, thus it can be skipped.
-    SymbolInfoListIter iter;
-    for (SymbolInfo * symbol_info = m_symbol_info_list.get_tail(&iter);
-         symbol_info != nullptr;
-         symbol_info = m_symbol_info_list.get_prev(&iter)) {
-        //Find the target SymbolInfo via 'st_shndx'.
-        if (!SYMINFO_is_func(symbol_info) ||
-            (SYMINFO_sym(symbol_info).st_shndx !=
-             SYMINFO_sym(cur_symbol_info).st_shndx) ||
-            (SYMINFO_name(symbol_info) == SYMINFO_name(cur_symbol_info))) {
-            continue;
-        }
-        ASSERT0(SYMINFO_func(symbol_info));
-
-        //These two SymbolInfo 'cur_symbol_info' and 'symbol_info'
-        //are mutually AttachInfo for each ohter.
-        SYMINFO_attach_list(symbol_info).append_tail(cur_symbol_info);
-        SYMINFO_attach_list(cur_symbol_info).append_head(symbol_info);
-    }
-}
-
-
 void ELFMgr::collectSymtabInfo(ELFHdr & hdr, ELFSHdr const* sym_shdr)
 {
     ASSERT0(sym_shdr);
+
+    AttachInfoMgr aim;
+    AttachInfoMap attach_info_map(&aim);
 
     for (UINT i = 0; i < sym_shdr->getElemNum(); i++) {
         SymbolInfo * symbol_info = m_sym_mgr.allocSymbolInfo();
@@ -4935,12 +4901,12 @@ void ELFMgr::collectSymtabInfo(ELFHdr & hdr, ELFSHdr const* sym_shdr)
         //corresponded FunctionInfo.
         if (SYMINFO_sym(symbol_info).st_type == STT_FUNC) {
             collectFuncInfoForSymbol(hdr, symbol_info);
-
             //Collect symbol's attach symbol info.
-            SYMINFO_attach_list(symbol_info).append_tail(symbol_info);
-            if (SYMINFO_sym(symbol_info).st_value != 0) {
-                getSymbolInfoAttachInfo(symbol_info);
-            }
+            bool find = false;
+            SymbolInfoList * list = attach_info_map.getAndGen(
+                (UINT)SYMINFO_sym(symbol_info).st_shndx, &find);
+            ASSERT0(list);
+            insertAttachInfoIntoCorrectedPos(list, symbol_info);
         }
 
         //There isn't RelocInfo to handle.
@@ -4969,6 +4935,81 @@ void ELFMgr::collectSymtabInfo(ELFHdr & hdr, ELFSHdr const* sym_shdr)
             if (RELOCINFO_sym_idx(reloc_info) == SYMINFO_index(symbol_info)) {
                 RELOCINFO_name(reloc_info) = SYMINFO_name(symbol_info);
             }
+        }
+    }
+
+    processAttachInfo(attach_info_map);
+}
+
+
+void ELFMgr::insertAttachInfoIntoCorrectedPos(MOD SymbolInfoList * list,
+                                              MOD SymbolInfo * symbol_info)
+{
+    ASSERT0(list && symbol_info);
+
+    //Symbol table '.symtab' contains x entryies:
+    //  Num:    Value    Size    Type    Bind    Vis    Ndx    Name
+    //    0:    000000    0      NOTYPE  LOCAL  DEFAULT UND
+    //    ...   ...
+    //    6:    000000   152     FUNC    GLOBAL DEFAULT  4    foo
+    //    7:    000098   92      FUNC    GLOBAL DEFAULT  4    bar
+    //    8:    0000f4   90      FUNC    GLOBAL DEFAULT  4    zoo
+    //    ...   ...
+    //AttachInfo in SymbolInfo 'foo' is: [foo, bar, zoo]
+    //AttachInfo in SymbolInfo 'bar' is: [foo, bar, zoo]
+    //AttachInfo in SymbolInfo 'zoo' is: [foo, bar, zoo]
+
+    SymbolInfoListIter iter;
+    for (SymbolInfo const* s = list->get_head(&iter);
+         s != nullptr; s = list->get_next(&iter)) {
+        //Both 's' and 'symbol' are with the same value in 'st_value' field.
+        //It represents these two symbols are with the same function code. We
+        //need to determine which symbol should be kept in the AttachInfo list.
+        if ((SYMINFO_sym(s).st_value == SYMINFO_sym(symbol_info).st_value)) {
+            return insertAttachInfoIfSymbolInfoWithSameStValue(
+                list, iter, s, symbol_info);
+        }
+
+        //Symbols in AttachInfo list sorted by the value of 'st_value'.
+        if (SYMINFO_sym(s).st_value < SYMINFO_sym(symbol_info).st_value) {
+            continue;
+        }
+
+        list->insert_before(symbol_info, iter);
+        return;
+    }
+
+    list->append_tail(symbol_info);
+}
+
+
+void ELFMgr::processAttachInfo(AttachInfoMap & attach_info_map)
+{
+    //Multi-SymbolInfo with function type may be merged into a text section
+    //in ELF with relocatable file. And these functions may directly call or
+    //jump to other function in the same text section. Thus there is an order
+    //between these functions. When collected SymbolInfo, the AttachInfo is
+    //used to record these order relationship.
+    //e.g.:
+    //Symbol table '.symtab' contains x entryies:
+    //  Num:    Value    Size    Type    Bind    Vis    Ndx    Name
+    //    0:    000000    0      NOTYPE  LOCAL  DEFAULT UND
+    //    ...   ...
+    //    6:    000000   152     FUNC    GLOBAL DEFAULT  4    foo
+    //    7:    000098   92      FUNC    GLOBAL DEFAULT  4    bar
+    //    ...   ...
+    //When FunctionInfo merged or copied, the order between function 'foo'
+    //and 'bar' should be kept. Since these two functions may jump to each
+    //other via fixed offset that encoded in the field of jump instruction.
+
+    AttachInfoMapIter iter;
+    SymbolInfoList * list = nullptr;
+    for (attach_info_map.get_first(iter, &list);
+         !iter.end(); attach_info_map.get_next(iter, &list)) {
+        ASSERT0(list);
+        for (SymbolInfo * sym = list->get_head();
+             sym != nullptr; sym = list->get_next()) {
+            SYMINFO_attach_list(sym).copy(*list);
         }
     }
 }

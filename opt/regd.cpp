@@ -77,26 +77,6 @@ bool RegD::is_exact_cover(RegD const* m) const
 bool RegD::is_overlap(RegD const* m) const
 {
     ASSERT0(m && this != m);
-    //NOTE: If one is going to compare m with Delegate, the best choice is to
-    //use RegDSet::is_contain() rather than comparing RegD one by one.
-    //
-    //TBD: Does it necessary to judge if either current
-    //RegD or input RegD is FULL_MEM?
-    //As we observed, passes that utilize RegD relationship add
-    //REGD2 to according IR's RegDSet, which can keep global variables
-    //and REGD2 dependence.
-    //e.g: g=10, #mustdef=REGD10, maydef={REGD2, REGD10}, g is global
-    //           #variable that represented in Program Region.
-    //     foo(); #maydef={REGD2, REGD10}
-    //if (REGD_id(m) == REGD_FULL_MEM || REGD_id(this) == REGD_FULL_MEM) {
-    //    return true;
-    //}
-
-    //It is also unnecessary to judge HEAP_REGD relationship if RegD
-    //is FULL_MEM.
-    //if (REGD_id(m) == REGD_HEAP_MEM && REGD_id(this) == REGD_FULL_MEM)
-    //{ return true; }
-
     if (REGD_base(m) != REGD_base(this)) { return false; }
     return !(((REGD_ofst(m) + REGD_size(m)) <= REGD_ofst(this)) ||
              ((REGD_ofst(this) + REGD_size(this)) <= REGD_ofst(m)));
@@ -137,24 +117,6 @@ void RegD::dump(RegDSystem const* sys) const
 //
 void RegDSet::bunion(REGDIdx rd, DefMiscBitSetMgr & rdsmgr)
 {
-    //TBD: Does it necessary to judge if either current
-    //RegD or input RegD is FULL_MEM?
-    //As we observed, passes that utilize RegD relationship add
-    //REGD2 to according IR's RegDSet, which can keep global variables
-    //and REGD2 dependence.
-    //e.g: g=10, #mustdef=REGD10, maydef={REGD2, REGD10}, g is global
-    //           #variable that represented in Program Region.
-    //     foo(); #maydef={REGD2, REGD10}
-    //if (rd == REGD_FULL_MEM) {
-    //    clean(rdsmgr);
-    //    DefSBitSetCore::bunion(REGD_FULL_MEM, rdsmgr);
-    //    return;
-    //}
-    //if (DefSBitSetCore::is_contain(REGD_FULL_MEM)) {
-    //    ASSERT0(DefSBitSetCore::get_elem_count() == 1);
-    //    return;
-    //}
-
     DefSBitSetCore::bunion(rd, rdsmgr);
 }
 
@@ -226,26 +188,7 @@ bool RegDSet::is_overlap_ex(RegD const* rd, RegDSystem const* sys) const
 void RegDSet::bunion(RegDSet const& rds, DefMiscBitSetMgr & rdsmgr)
 {
     if (this == &rds) { return; }
-
     ASSERT0(!((DefSBitSetCore&)rds).is_contain(0));
-
-    //TBD: Does it necessary to judge if either current
-    //RegD or input RegD is FULL_MEM?
-    //As we observed, passes that utilize RegD relationship add
-    //REGD2 to according IR's RegDSet, which can keep global variables
-    //and REGD2 dependence.
-    //e.g: g=10, #mustdef=REGD10, maydef={REGD2, REGD10}, g is global
-    //           #variable that represented in Program Region.
-    //     foo(); #maydef={REGD2, REGD10}
-    //if (DefSBitSetCore::is_contain(REGD_FULL_MEM)) {
-    //    return;
-    //}
-    //if (((DefSBitSetCore const&)rds).is_contain(REGD_FULL_MEM)) {
-    //    clean(rdsmgr);
-    //    DefSBitSetCore::bunion(REGD_FULL_MEM, rdsmgr);
-    //    return;
-    //}
-
     DefSBitSetCore::bunion((DefSBitSetCore&)rds, rdsmgr);
 }
 
@@ -315,7 +258,7 @@ RegDSystem::RegDSystem(RegionMgr const* rm, TargInfoMgr const* tim)
 
 
 //Register RegD and generating unique id for it, with the followed method:
-//1. Generating RegD hash table for any unique Var.
+//1. Generating RegD hash table for any unique REGFILE.
 //2. Entering 'rd' into RegD hash table, the hash-value comes
 //    from an evaluating binary-Tree that the branch of
 //    tree-node indicate determination data related with RegD fields.
@@ -341,39 +284,13 @@ RegD const* RegDSystem::registerRegD(RegD const& m)
     //Check if RegD has been registerd.
     RegDTab * rdtab = getRegDTab(REGD_base(&m));
     if (rdtab != nullptr) {
-        //Var-base has been registered, then check rd by
+        //REGFILE base has been registered, then check rd by
         //offset in rd-table.
         RegD const* hash_entry = rdtab->find(&m);
         if (hash_entry != nullptr) {
             //find RegD via REGD_ofst.
             return hash_entry;
         }
-
-        //TBD: Does it necessary to judge if either current
-        //RegD or input RegD is FULL_MEM?
-        //As we observed, passes that utilize RegD relationship add
-        //REGD2 to according IR's RegDSet, which can keep global variables
-        //and REGD2 dependence.
-        //e.g:
-        //  #mustdef=REGD10, maydef={REGD2, REGD10}, g is global
-        //  #variable that represented in Program Region.
-        //  g=10,
-        //
-        //  #maydef={REGD2, REGD10}
-        //  foo();
-        //if (REGD_base(&m) == m_all_mem) {
-        //    return getRegDByIdx(REGD_FULL_MEM);
-        //}
-
-        //TODO: remove HEAP, STACK id. I consider they are useless.
-        //if (REGD_base(rd) == g_heap_mem) {
-        //    REGD_id(rd) = REGD_HEAP_MEM;
-        //    return ::getRegDByIdx(REGD_HEAP_MEM);
-        //}
-        //if (REGD_base(rd) == g_stack_mem) {
-        //    REGD_id(rd) = REGD_LOCAL_VAR;
-        //    return ::getRegDByIdx(REGD_LOCAL_VAR);
-        //}
     }
 
     //Generate a new RegD and record it in rd-table according to its id.
@@ -387,7 +304,7 @@ RegD const* RegDSystem::registerRegD(RegD const& m)
         m_rf2rdtab.set(REGD_base(entry), rdtab);
     }
 
-    //Insert entry into RegDTab of Var.
+    //Insert entry into RegDTab of REGFILE.
     rdtab->append(entry);
     m_id2regd.set(REGD_id(entry), entry);
     return entry;
@@ -509,8 +426,6 @@ void RegDSystem::initRegDByTargInfo()
 //then output set is {rd1, rd2, rd3}.
 //rd: input to compute the overlapped rd-set.
 //tabiter: for local use.
-//strictly: set to true to compute if rd may be overlapped
-//            with global variables or import variables.
 //Note this function does NOT clean output, and will append result to output.
 void RegDSystem::computeOverlap(
     RegD const* rd, OUT RegDSet & output, ConstRegDIter & tabiter,

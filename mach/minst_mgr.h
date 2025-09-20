@@ -134,6 +134,7 @@ class MInstMgr {
     SMemPool * m_pool;
     Region * m_rg;
     MFieldMgr * m_field_mgr;
+    CallInstDesc m_call_instdesc;
     LabelInstDesc m_label_instdesc;
     MemAccInstDesc m_memacc_instdesc;
     DwarfCFIInstDesc m_dwarf_cfi_instdesc;
@@ -158,6 +159,7 @@ protected:
     MInstMgr * self() { return this; }
 public:
     MInstMgr(Region * rg, MFieldMgr * fm) : m_rg(rg), m_field_mgr(fm),
+        m_call_instdesc(*self()),
         m_label_instdesc(*self()),
         m_memacc_instdesc(*self()),
         m_dwarf_cfi_instdesc(*self())
@@ -181,6 +183,13 @@ public:
         DbxMgr * dbx_mgr = m_rg->getDbxMgr();
         ASSERT0(dbx_mgr);
         MI_dbx(mi).init(dbx_mgr);
+        return mi;
+    }
+
+    //Build a dummy machine instruction that indicates a call.
+    virtual MInst * buildCall(MI_CODE c)
+    {
+        MInst * mi = buildMInst<CallMInst>(c, &m_call_instdesc);
         return mi;
     }
 

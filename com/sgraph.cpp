@@ -445,6 +445,7 @@ Edge * Graph::reverseEdge(Edge * e)
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     ASSERTN(m_is_direction, ("graph is indirection"));
+    ASSERT0(isEdge(e));
     EdgeInfoType einfo = EDGE_info(e);
     Vertex * from = EDGE_from(e);
     Vertex * to = EDGE_to(e);
@@ -480,6 +481,8 @@ void Graph::insertVertexBetween(
     OUT Edge ** e2, bool sort)
 {
     ASSERT0(v1 && v2 && newv);
+    ASSERT0(isVertex(v1));
+    ASSERT0(isVertex(v2));
     Edge * e = getEdge(v1, v2);
     EdgeC * v2pos_in_list = nullptr;
     EdgeC * v1pos_in_list = nullptr;
@@ -547,8 +550,9 @@ void Graph::insertVertexBetween(
 //Return edge v1->newv, newv->v2.
 //
 //NOTICE: newv must be node in graph.
-void Graph::insertVertexBetween(VexIdx v1, VexIdx v2, VexIdx newv,
-                                OUT Edge ** e1, OUT Edge ** e2, bool sort)
+void Graph::insertVertexBetween(
+    VexIdx v1, VexIdx v2, VexIdx newv, OUT Edge ** e1, OUT Edge ** e2,
+    bool sort)
 {
     Vertex * pv1 = getVertex(v1);
     Vertex * pv2 = getVertex(v2);
@@ -560,11 +564,12 @@ void Graph::insertVertexBetween(VexIdx v1, VexIdx v2, VexIdx newv,
 
 //pos_in_outlist: optional, record the position in outlist of 'from' of 'e'
 //pos_in_inlist: optional, record the position in inlist of 'to' of 'e'
-Edge * Graph::removeEdge(Edge * e, OUT UINT * pos_in_outlist,
-                         OUT UINT * pos_in_inlist)
+Edge * Graph::removeEdge(
+    Edge * e, OUT UINT * pos_in_outlist, OUT UINT * pos_in_inlist)
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (e == nullptr) { return nullptr; }
+    ASSERT0(isEdge(e));
     Vertex * from = EDGE_from(e);
     Vertex * to = EDGE_to(e);
     //remove out of out-list of 'from'
@@ -609,6 +614,7 @@ Vertex * Graph::removeVertex(Vertex * vex)
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return nullptr; }
+    ASSERT0(isVertex(vex));
     for (EdgeC * el = vex->getOutList(); el != nullptr;) {
         EdgeC * tmp = el;
         el = el->get_next();
@@ -694,6 +700,7 @@ UINT Graph::getDegree(Vertex const* vex) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return 0; }
+    ASSERT0(isVertex(vex));
     return vex->getInDegree() + vex->getOutDegree();
 }
 
@@ -702,6 +709,7 @@ bool Graph::isInDegreeMoreThan(Vertex const* vex, UINT num) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return 0; }
+    ASSERT0(isVertex(vex));
     UINT degree = 0;
     for (EdgeC * el = vex->getInList(); el != nullptr; el = EC_next(el)) {
         degree++;
@@ -715,6 +723,7 @@ bool Graph::isOutDegreeMoreThan(Vertex const* vex, UINT num) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return 0; }
+    ASSERT0(isVertex(vex));
     UINT degree = 0;
     for (EdgeC * el = vex->getOutList(); el != nullptr; el = EC_next(el)) {
         degree++;
@@ -728,6 +737,7 @@ bool Graph::isInDegreeEqualTo(Vertex const* vex, UINT num) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return 0; }
+    ASSERT0(isVertex(vex));
     UINT degree = 0;
     for (EdgeC * el = vex->getInList(); el != nullptr; el = EC_next(el)) {
         degree++;
@@ -741,6 +751,7 @@ bool Graph::isOutDegreeEqualTo(Vertex const* vex, UINT num) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
     if (vex == nullptr) { return 0; }
+    ASSERT0(isVertex(vex));
     UINT degree = 0;
     for (EdgeC * el = vex->getOutList(); el != nullptr; el = EC_next(el)) {
         degree++;
@@ -753,6 +764,7 @@ bool Graph::isOutDegreeEqualTo(Vertex const* vex, UINT num) const
 Edge * Graph::getEdge(Vertex const* from, Vertex const* to) const
 {
     ASSERTN(m_ec_pool != nullptr, ("not yet initialized."));
+    ASSERT0(isVertex(from) && isVertex(to));
     if (from == nullptr || to == nullptr) { return nullptr; }
 
     EdgeC * el = from->getOutList();
@@ -797,7 +809,6 @@ bool Graph::is_equal(Graph & g) const
         getEdgeNum() != g.getEdgeNum()) {
         return false;
     }
-
     BitSet vs;
     VertexIter c = VERTEX_UNDEF;
     for (Vertex * v1 = get_first_vertex(c);
@@ -842,8 +853,8 @@ bool Graph::is_equal(Graph & g) const
 }
 
 
-bool Graph::is_livein_from(Vertex const* v, Vertex const* pred,
-                           Vertex const* start) const
+bool Graph::is_livein_from(
+    Vertex const* v, Vertex const* pred, Vertex const* start) const
 {
     class Visited {
     public:
@@ -1064,8 +1075,8 @@ void Graph::removeTransitiveEdgeHelper(
         if (is_dense()) {
             reachset->set(fromvex->id(), from_reachset);
         } else {
-            ((TMap<VexIdx, DefSBitSetCore*>*)reachset)->set(fromvex->id(),
-                                                          from_reachset);
+            ((TMap<VexIdx, DefSBitSetCore*>*)reachset)->set(
+                fromvex->id(), from_reachset);
         }
     }
 
@@ -1336,8 +1347,8 @@ void Graph::dumpVCG(CHAR const* name) const
 }
 
 
-bool Graph::isReachExit(Vertex const* vex, UINT try_limit,
-                        OUT bool & try_failed)
+bool Graph::isReachExit(
+    Vertex const* vex, UINT try_limit, OUT bool & try_failed)
 {
     if (is_graph_exit(vex)) { return true; }
     UINT count = 0;
@@ -1401,8 +1412,7 @@ bool Graph::isReachIn(
 }
 
 
-UINT Graph::WhichPred(VexIdx pred_vex_id, Vertex const* vex,
-                      OUT bool & is_pred)
+UINT Graph::WhichPred(VexIdx pred_vex_id, Vertex const* vex, OUT bool & is_pred)
 {
     ASSERT0(vex);
     UINT n = 0;
@@ -2211,67 +2221,91 @@ bool DGraph::verifyDom(DGraph & g, RPOVexList const& rpovlst) const
 
 bool DGraph::verifyDom() const
 {
-    DGraph g;
-    g.clone(*this, false, false);
-    Vertex * entry = nullptr;
+    DGraph tg;
+    tg.clone(*this, false, false);
+    Vertex * tgentry = nullptr;
     VertexIter it = VERTEX_UNDEF;
-    for (Vertex * v = g.get_first_vertex(it); v != nullptr;
-         v = g.get_next_vertex(it)) {
-        if (g.is_graph_entry(v)) {
-            entry = v;
+    for (Vertex * v = tg.get_first_vertex(it); v != nullptr;
+         v = tg.get_next_vertex(it)) {
+        if (tg.is_graph_entry(v)) {
+            tgentry = v;
             break;
         }
     }
-    if (entry == nullptr) { return true; }
+    if (tgentry == nullptr) { return true; }
     RPOVexList rpovlst;
     RPOMgr rpomgr;
+    Vertex * entry = getVertex(tgentry->id());
+    ASSERT0(entry);
     rpomgr.computeRPO(*this, entry, rpovlst);
-    verifyDom(g, rpovlst);
+    RPOVexList tgrpovlst;
+    for (Vertex const* v = rpovlst.get_head();
+         v != nullptr; v = rpovlst.get_next()) {
+        Vertex const* tgv = tg.getVertex(v->id());
+        tgrpovlst.append_tail(tgv);
+    }
+    verifyDom(tg, tgrpovlst);
     return true;
 }
 
 
 bool DGraph::verifyPdom() const
 {
-    DGraph g;
-    g.clone(*this, false, false);
-    Vertex * entry = nullptr;
+    DGraph tg;
+    tg.clone(*this, false, false);
+    Vertex * tgentry = nullptr;
     VertexIter it = VERTEX_UNDEF;
-    for (Vertex * v = g.get_first_vertex(it); v != nullptr;
-         v = g.get_next_vertex(it)) {
-        if (g.is_graph_entry(v)) {
-            entry = v;
+    for (Vertex * v = tg.get_first_vertex(it); v != nullptr;
+         v = tg.get_next_vertex(it)) {
+        if (tg.is_graph_entry(v)) {
+            tgentry = v;
             break;
         }
     }
-    if (entry == nullptr) { return true; }
+    if (tgentry == nullptr) { return true; }
     RPOVexList rpovlst;
     RPOMgr rpomgr;
+    Vertex * entry = getVertex(tgentry->id());
+    ASSERT0(entry);
     rpomgr.computeRPO(*this, entry, rpovlst);
-    verifyPdom(g, rpovlst);
+    RPOVexList tgrpovlst;
+    for (Vertex const* v = rpovlst.get_head();
+         v != nullptr; v = rpovlst.get_next()) {
+        Vertex const* tgv = tg.getVertex(v->id());
+        tgrpovlst.append_tail(tgv);
+    }
+    verifyPdom(tg, tgrpovlst);
     return true;
 }
 
 
 bool DGraph::verifyDomAndPdom() const
 {
-    DGraph g;
-    g.clone(*this, false, false);
-    Vertex * entry = nullptr;
+    DGraph tg;
+    tg.clone(*this, false, false);
+    Vertex * tgentry = nullptr;
     VertexIter it = VERTEX_UNDEF;
-    for (Vertex * v = g.get_first_vertex(it); v != nullptr;
-         v = g.get_next_vertex(it)) {
-        if (g.is_graph_entry(v)) {
-            entry = v;
+    for (Vertex * v = tg.get_first_vertex(it); v != nullptr;
+         v = tg.get_next_vertex(it)) {
+        if (tg.is_graph_entry(v)) {
+            tgentry = v;
             break;
         }
     }
-    if (entry == nullptr) { return true; }
+    if (tgentry == nullptr) { return true; }
     RPOVexList rpovlst;
     RPOMgr rpomgr;
+    Vertex * entry = getVertex(tgentry->id());
+    ASSERT0(entry);
     rpomgr.computeRPO(*this, entry, rpovlst);
-    verifyDom(g, rpovlst);
-    verifyPdom(g, rpovlst);
+    RPOVexList tgrpovlst;
+    for (Vertex const* v = rpovlst.get_head();
+         v != nullptr; v = rpovlst.get_next()) {
+        Vertex const* tgv = tg.getVertex(v->id());
+        tgrpovlst.append_tail(tgv);
+    }
+    verifyDom(tg, tgrpovlst);
+    verifyPdom(tg, tgrpovlst);
     return true;
 }
 

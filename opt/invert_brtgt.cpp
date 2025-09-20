@@ -80,9 +80,37 @@ bool InvertBrTgt::dump() const
 }
 
 
-bool InvertBrTgt::invertLoop(InvertBrTgt * invt, IR * br, IRBB * br_tgt,
-                             IR * jmp, IRBB * jmp_tgt)
+void InvertBrTgt::recordBBOrder()
 {
+    UINT index = 0;
+    m_bb_order.clean();
+    BBList * bb_list = m_rg->getBBList();
+    ASSERT0(bb_list);
+
+    //Record BB order.
+    for (IRBB const* bb = bb_list->get_head();
+         bb != nullptr; bb = bb_list->get_next()) {
+        m_bb_order.set((VecIdx)bb->id(), index++);
+    }
+}
+
+
+bool InvertBrTgt::canBeInvertedBRCandidate(
+    IRBB const* head_bb, IRBB const* br_bb, IRBB const* out_bb)
+{
+    ASSERT0(head_bb && br_bb && out_bb);
+
+    //The predicted direction of br instruction will effect the performance
+    //of inverted br optimization, thus we need to consider the factor.
+    return canBeGainedAfterConsideredBranchPrediction(head_bb, br_bb, out_bb);
+}
+
+
+bool InvertBrTgt::invertLoop(MOD IR * br, MOD IRBB * br_tgt,
+                             MOD IR * jmp, MOD IRBB * jmp_tgt)
+{
+    ASSERT0(br && br_tgt && jmp && jmp_tgt);
+
     //Displacement
     if (br->is_truebr()) {
         IR_code(br) = IR_FALSEBR;
@@ -93,14 +121,14 @@ bool InvertBrTgt::invertLoop(InvertBrTgt * invt, IR * br, IRBB * br_tgt,
     LabelInfo const* br_lab = BR_lab(br);
     br->setLabel(GOTO_lab(jmp));
     jmp->setLabel(br_lab);
-    invt->addDump(br);
-    invt->addDump(jmp);
+    addDump(br);
+    addDump(jmp);
 
-    IRCFG * cfg = invt->getRegion()->getCFG();
+    IRCFG * cfg = getRegion()->getCFG();
     void * vi1 = cfg->getEdge(br->getBB()->id(), br_tgt->id())->info();
     void * vi2 = cfg->getEdge(jmp->getBB()->id(), jmp_tgt->id())->info();
 
-    IRCfgOptCtx ctx(invt->getOptCtx());
+    IRCfgOptCtx ctx(getOptCtx());
     cfg->removeEdge(br->getBB(), br_tgt, ctx);
     cfg->removeEdge(jmp->getBB(), jmp_tgt, ctx);
 
@@ -114,8 +142,11 @@ bool InvertBrTgt::invertLoop(InvertBrTgt * invt, IR * br, IRBB * br_tgt,
 
 
 //Return true if there is loop changed.
-static bool tryInvertLoop(InvertBrTgt * invt, IRCFG * cfg, LI<IRBB> const* li)
+bool InvertBrTgt::tryInvertLoop(LI<IRBB> const* li)
 {
+    IRCFG * cfg = m_rg->getCFG();
+    ASSERT0(cfg);
+
     IRBB * head = li->getLoopHead();
     ASSERT0(head && head->getVex());
     UINT backedge_pred = VERTEX_UNDEF;
@@ -162,7 +193,11 @@ static bool tryInvertLoop(InvertBrTgt * invt, IRCFG * cfg, LI<IRBB> const* li)
     IRBB * br_tgt = cfg->findBBbyLabel(BR_lab(br));
     if (li->isInsideLoop(br_tgt->id())) { return false; }
 
-    return InvertBrTgt::invertLoop(invt, br, br_tgt, jmp, head);
+    //Based on the characteristics of different architectures,
+    //further validate whether this optimization is feasible.
+    if (!canBeInvertedBRCandidate(head, prev, br_tgt)) { return false; }
+
+    return InvertBrTgt::invertLoop(br, br_tgt, jmp, head);
 }
 
 
@@ -182,13 +217,13 @@ static bool tryInvertLoop(InvertBrTgt * invt, IRCFG * cfg, LI<IRBB> const* li)
 //    goto L2
 //    ...
 //    L2:st = ...
-static bool iterLoopTree(InvertBrTgt * invt, IRCFG * cfg, LI<IRBB> const* li)
+bool InvertBrTgt::iterLoopTree(LI<IRBB> const* li)
 {
     if (li == nullptr) { return false; }
     bool changed = false;
     for (LI<IRBB> const* tli = li; tli != nullptr; tli = tli->get_next()) {
-        changed |= tryInvertLoop(invt, cfg, tli);
-        changed |= iterLoopTree(invt, cfg, tli->getInnerList());
+        changed |= tryInvertLoop(tli);
+        changed |= iterLoopTree(tli->getInnerList());
     }
     return changed;
 }
@@ -203,8 +238,8 @@ bool InvertBrTgt::perform(OptCtx & oc)
     if (!oc.is_loopinfo_valid()) { return false; }
     ASSERT0L3(m_rg->getCFG()->verifyLoopInfo(oc));
     dumpInit();
-    bool changed = iterLoopTree(
-        this, m_rg->getCFG(), m_rg->getCFG()->getLoopInfo());
+    recordBBOrder();
+    bool changed = iterLoopTree(m_rg->getCFG()->getLoopInfo());
     if (!changed) {
         dumpFini();
         END_TIMER(t, getPassName());

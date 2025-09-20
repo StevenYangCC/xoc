@@ -593,7 +593,7 @@ void IMat::hnf(OUT IMat & h, OUT IMat & u, MOD IMatMgr & mgr) const
 //Reduce matrix by GCD operation.
 void IMat::gcd()
 {
-    if (getColSize() == 1) return;
+    if (getColSize() == 1) { return; }
     for (UINT i = 0; i < getRowSize(); i++) {
         UINT min = (UINT)-1;
         UINT j;

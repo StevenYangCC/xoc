@@ -1841,7 +1841,38 @@ VN const* GVN::computeExactMemory(IR const* exp, bool & change)
     if (emd == nullptr) { return nullptr; }
     IR const* kd = xoc::findKillingDef(exp, m_rg);
     if (kd != nullptr) {
+        if (exp->getMustRef() != kd->getMustRef()) {
+            //CASE:
+            //MD11 -- base:Var13(j):-- ofst:  -- size:4
+            //MD12 -- base:Var13(j):-- ofst:  -- size:2
+            //st:u32:storage_space(satck) 'j' id:5 attachinfo:MDSSA
+            //    $8:u32 id:1
+            //  ----
+            //  st:u32:storage_space(satck) 'j' id:5 attachinfo:MDSSA
+            //  EMD11 : MD11,MD12
+            //stpr $1:u16 id:8 attachinfo:Dbx
+            //    ld:u16:storage_space(satck) 'j' id:7 attachinfo:MDSSA
+            //  ld:u16:storage_space(satck) 'j' id:7 attachinfo:MDSSA
+            //  EMD12 : MD11,MD12
+            //Because the size of MD11 and MD12 are different, so the VN should
+            //be different.
+            return nullptr;
+        }
         return inferVNViaDomKillingDef(exp, kd, change);
+    }
+    //If the momory is volatile, that means the VN cannot be computed, because
+    //the value in the memory may be changed.
+    //CASE:
+    //    stpr $63:i32 id:485 attachinfo:Dbx
+    //      ld:i32:storage_space(stack) 'st0' id:519 volatile attachinfo:MDSSA
+    //    truebr label label_BB0_19 id:522 attachinfo:Dbx
+    //      eq:bool id:521
+    //        $63:i32 id:478
+    //        intconst:i32 0|0x0 id:520
+    if (exp->is_ld()) {
+        Var * var = exp->getIdinfo();
+        ASSERT0(var);
+        if (var->is_volatile()) { return nullptr; }
     }
     return inferVNThroughCFG(exp, change);
 }
@@ -2175,6 +2206,13 @@ VN const* GVN::computeScalar(IR const* exp, bool & change)
     //TBD:does it necessary to compute nearest-dom-def again to judge whether
     //the inexact-ref of 'exp' has VN?
     //return computeInexactScalarByClassicDU(exp, change);
+
+    //Compute the VN by the dedicated target usage if possible.
+    evn = computeVNByDedicatedTargetUsage(exp);
+    if (evn != nullptr) {
+        setVN(exp, evn);
+        change = true;
+    }
     return nullptr;
 }
 
@@ -2215,9 +2253,26 @@ VN const* GVN::computeBin(IR const* exp, bool & change)
     if (vn1->is_int() && vn2->is_int() &&
         !m_refine->mayCauseHardWareException(
             exp->getCode(), VN_int_val(vn1), VN_int_val(vn2))) {
-        HOST_INT val = m_refine->calcBinIntVal(
-            exp, VN_int_val(vn1), VN_int_val(vn2));
-        x = computeIntConst(val);
+        //Sometimes, the type of a prno at the 'def' IR and the 'use' IR is
+        //different, so the type of VN and the type of pr may be inconsistent,
+        //the final VN cannot be compute by interger value.
+        if (BIN_opnd0(exp)->is_int() && BIN_opnd1(exp)->is_int()) {
+            HOST_INT val = m_refine->calcBinIntVal(
+                exp, VN_int_val(vn1), VN_int_val(vn2));
+            x = computeIntConst(val);
+        } else {
+            //If the exp type is float, we need to register VN by non-int type.
+            //CASE:
+            //  stpr $1:u64 id:8 attachinfo:Dbx
+            //      intconst:u64 0|0x0 id:2
+            //  stpr $2:u64 id:9 attachinfo:Dbx
+            //      intconst:u64 0|0x0 id:10
+            //  stpr $3:u64 id:12 attachinfo:Dbx
+            //      gt:bool id:15
+            //          $1:f32 id:20
+            //          $2:f32 id:21
+            x = registerBinVN(exp->getCode(), vn1, vn2);
+        }
     } else {
         x = registerBinVN(exp->getCode(), vn1, vn2);
     }

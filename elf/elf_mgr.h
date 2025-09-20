@@ -35,6 +35,7 @@ class SymbolInfo;
 class FunctionInfo;
 class LinkerMgr;
 class ELFMgr;
+class ELFARMgr;
 
 #define ELF_SIZE_4GB            0xFFFFffff
 
@@ -53,13 +54,11 @@ class ELFMgr;
 #define RELA_DATA_NAME          ".rela.data"
 #define RELA_SDATA_NAME         ".rela.sdata"
 #define RELA_SH_NAME            ".rela.text."
-#define RELA_KERNEL_SH_NAME     ".rela.aitext."
 #define SBSS_SH_NAME            ".sbss"
 #define SDATA_SH_NAME           ".sdata"
 #define SHSTR_SH_NAME           ".shdr_strtab"
 #define SPM_SH_NAME             ".spm"
 #define SUBTEXT_SH_PRE          ".text."
-#define SUBTEXT_ENTRY_SH_PRE    ".aitext."
 #define SYMSTR_SH_NAME          ".strtab"
 #define SYMTAB_SH_NAME          ".symtab"
 #define TEXT_SH_NAME            ".text"
@@ -177,6 +176,7 @@ typedef xcom::Vector<Off> OffVec;
 typedef xcom::Vector<CHAR const*> StringVec;
 typedef xcom::List<CHAR const*> StringList;
 typedef xcom::List<CHAR const*>::Iter StringListIter;
+typedef xcom::List<SymbolInfo*> SymbolInfoList;
 typedef xcom::Vector<SWord> SWordVec;
 typedef xcom::Vector<Word> WordVec;
 typedef xcom::Vector<Addr> AddrVec;
@@ -414,7 +414,7 @@ typedef enum _PROGRAM_HEADER {
     PH_TYPE_DYNAMIC,
     PH_TYPE_RELA_PLT,
     PH_TYPE_RISCV_ATTR,
-    PH_TYPE_INTERP,
+    #include "ph_type_ext.inc"
     PH_TYPE_NUMBER,
 } PROGRAM_HEADER;
 
@@ -1326,10 +1326,70 @@ public:
 };
 
 
-class ELFARMgr;
+//The class manages AttachInfo object resources. It creates AttachInfo
+//object and uses xoc::List 'm_list' to record. These resources would be
+//freed when the destructor is called.
+class AttachInfoMgr {
+    COPY_CONSTRUCTOR(AttachInfoMgr);
 
-//SymbolInfoList.
-typedef xcom::List<SymbolInfo*> SymbolInfoList;
+    xcom::List<SymbolInfoList*> m_list;
+public:
+    AttachInfoMgr() {}
+
+    ~AttachInfoMgr()
+    {
+        for (SymbolInfoList * s = m_list.get_head();
+             s != nullptr; s = m_list.get_next()) {
+            delete s;
+        }
+    }
+
+    SymbolInfoList * allocAttachInfoList()
+    {
+        SymbolInfoList * s = new SymbolInfoList();
+        ASSERT0(s);
+        m_list.append_tail(s);
+        return s;
+    }
+};
+
+
+class GenMappedOfAttachInfoMap {
+    COPY_CONSTRUCTOR(GenMappedOfAttachInfoMap);
+public:
+    AttachInfoMgr * m_attach_info_mgr;
+
+    GenMappedOfAttachInfoMap() {}
+
+    GenMappedOfAttachInfoMap(AttachInfoMgr * attach_info_mgr) :
+        m_attach_info_mgr(attach_info_mgr) {}
+
+    SymbolInfoList * createMapped(UINT t)
+    {
+        ASSERT0(m_attach_info_mgr);
+        return m_attach_info_mgr->allocAttachInfoList();
+    }
+};
+
+
+typedef xcom::TMap<UINT, SymbolInfoList *,
+    CompareKeyBase<UINT>, GenMappedOfAttachInfoMap> AttachInfoMapType;
+typedef xcom::TMapIter<UINT, SymbolInfoList *> AttachInfoMapIter;
+
+//The class is used to recored attach info in SymbolInfo.
+class AttachInfoMap : public xcom::TMap<UINT, SymbolInfoList*,
+    CompareKeyBase<UINT>, GenMappedOfAttachInfoMap> {
+    COPY_CONSTRUCTOR(AttachInfoMap);
+public:
+    AttachInfoMap(AttachInfoMgr * attach_info_mgr)
+    {
+        AttachInfoMapType::m_gm.m_attach_info_mgr = attach_info_mgr;
+    }
+
+   ~AttachInfoMap() {}
+};
+
+
 typedef xcom::List<SymbolInfo*>::Iter SymbolInfoListIter;
 //SymbolInfoMap.
 typedef xcom::TMap<Sym const*, SymbolInfo*> SymbolInfoMap;
@@ -1480,10 +1540,6 @@ protected:
     EM_STATUS readELFHeader();
     EM_STATUS read(BYTE * buf, size_t offset, size_t size);
     EM_STATUS write(BYTE const* buf, size_t offset, size_t size);
-
-    //Whether another section is needed to describe the architecture
-    //information.
-    virtual bool isNeedAttributeSection() { return false; }
 
     bool isSectionAllocable(size_t sectidx) const;
     bool isSectionException(size_t sect_ofst) const;
@@ -2683,9 +2739,6 @@ public:
     //will count and return the number of RelaPltInfo with global type.
     UINT getGlobalRelaPltElemNum();
 
-    //Get all the attach symbols for the current symbol.
-    void getSymbolInfoAttachInfo(MOD SymbolInfo * cur_symbol_info);
-
     LinkerMgr * getLinkerMgr() { return m_linker_mgr; }
 
     //Check whether there is specific section in ELFMgr.
@@ -2800,6 +2853,50 @@ public:
 
     void increaseDynsymIdx() { m_dynsym_idx++; }
 
+    //  More than one SymbolInfo with function type may be merged into a
+    //same text section in ELF with relocatable file. And these functions
+    //may directly call or jump to each other in the same text section.
+    //Thus the order between these functions is important. When collected
+    //SymbolInfo from ELF file, an AttachInfo is used to record these order.
+    //  e.g.:
+    //  Symbol table '.symtab' contains x entries:
+    //    Num:    Value    Size    Type    Bind    Vis    Ndx   Name
+    //      0:    000000    0      NOTYPE  LOCAL  DEFAULT UND
+    //      ...   ...
+    //      6:    000000   152     FUNC    GLOBAL DEFAULT  4    foo
+    //      7:    000098   92      FUNC    GLOBAL DEFAULT  4    bar
+    //      ...   ...
+    //  When FunctionInfo merged or copied, the order between function 'foo'
+    //and 'bar' should be kept too. Since these two functions may jump to each
+    //other via fixed offset that encoded in the field of jump instruction
+    //field. These order are determined by the 'st_value'(Value in .symtab) in
+    //SymbolInfo. And AttachInfo is a list in SymbolInfo that used to record
+    //the order of 'foo' and 'bar' in '.symtab'.
+    //'list': It is AttachInfo list that record the order of 'symbol_info'.
+    //'symbol_info': SymbolInfo that needs to be inserted into 'list'.
+    void insertAttachInfoIntoCorrectedPos(MOD SymbolInfoList * list,
+                                          MOD SymbolInfo * symbol_info);
+
+    //When two SymbolInfo are with the same value in 'st_value', it represents
+    //there are with the same function code. Thus 'original_symbol' that has
+    //been inserted into 'list' and 'inserted_symbol' should be just leaved one
+    //in 'list'. This function is used to determine which SymbolInfo should be
+    //kept in 'list'.
+    //'list': AttachInfo list.
+    //'iter': SymbolInfoIter.
+    //'original_symbol': SymbolInfo that has been inserted 'list'.
+    //'inserted_symbol': SymbolInfo that may be inserted into 'list'.
+    virtual void insertAttachInfoIfSymbolInfoWithSameStValue(
+        MOD SymbolInfoList * list, SymbolInfoListIter & iter,
+        SymbolInfo const* original_symbol, MOD SymbolInfo * inserted_symbol)
+    {
+        ASSERT0(list && original_symbol && inserted_symbol);
+        //Keep the first SymboInfo that has been inserted into 'list'.
+        ASSERT0L3(list->find(const_cast<SymbolInfo *>(original_symbol)) &&
+                  !list->find(inserted_symbol));
+        return;
+    }
+
     //Merge BSS SymbolInfo into the corresponded section of output ELF.
     //The BSS SymbolInfo needs to be allocated memory space and assigned
     //0 in corresponded section content.
@@ -2903,6 +3000,44 @@ public:
     //Process '.plt' section after set section address. There are location
     //that need to be refilled in the '.plt' section content.
     void processPltSectAfterSetSectAddr();
+
+    //Process attach symbols for the current symbol.
+    //Multi-SymbolInfo with function type may be merged into a text section
+    //in ELF with relocatable file. And these functions may directly call or
+    //jump to other function in the same text section. Thus there is an order
+    //between these functions. When collected SymbolInfo, the AttachInfo is
+    //used to record these order relationship.
+    //e.g.:
+    //Symbol table '.symtab' contains x entryies:
+    //  Num:    Value    Size    Type    Bind    Vis    Ndx    Name
+    //    0:    000000    0      NOTYPE  LOCAL  DEFAULT UND
+    //    ...   ...
+    //    6:    000000   152     FUNC    GLOBAL DEFAULT  4    foo
+    //    7:    000098   92      FUNC    GLOBAL DEFAULT  4    bar
+    //    ...   ...
+    //When merged or copied FunctionInfo, the relationship between function
+    //'foo' and 'bar' should be keep. Since these two functions may jump
+    //to each other via offset that encode in instruction.
+    void processAttachInfo(AttachInfoMap & attach_info_map);
+
+    //'sect_desc' is a table that used to descript the fundamental info of
+    //section. These info may be modified according to different architectures.
+    //Thus this function is used to modify the value of section align.
+    virtual Word provideSectAlign(SectionDesc const& sect_desc)
+    {
+        //Return the default value of section align in 'sect_desc'.
+        return SECTDESC_align(&sect_desc);
+    }
+
+    //'sect_desc' is a table that used to descript the fundamental info of
+    //section. These info may be modified according to different architectures.
+    //Thus this function is used to modify the program header type in
+    //section info.
+    virtual PROGRAM_HEADER providePhType(SectionDesc const& sect_desc)
+    {
+        //Return the default value of program header type in 'sect_desc'.
+        return SECTDESC_ph_type(&sect_desc);
+    }
 
     //Read ELFSym from .symtab section('shdr') via 'idx'.
     void readSymFromSymtabSect(ELFSHdr const* shdr,
@@ -3114,9 +3249,9 @@ public:
 
     bool isGenerateDeviceELF() const { return m_is_gen_device_elf; }
     bool isGenerateFatbinELF() const { return m_is_gen_fatbin_elf; }
+
     //Use '-elf-dumplink' option to dump linker info.
     //The default log file is 'dump.log'.
-    //e.g.: pcxac.exe xxx.pcx -O0 -elf-fatbin -elf-dumplink
     bool isDumpLink() const { return m_is_dump_link_info; }
     bool isSymbolOrderFile() const { return m_is_symbol_ordering_file; }
     bool isAggressiveCacheMissOptimization() const

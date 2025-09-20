@@ -39,6 +39,9 @@ class InvertBrTgt : public Pass {
     ConstIRList * m_changed_irlist; //used for dump
     OptCtx * m_oc;
 protected:
+    //Record BB order.
+    xcom::Vector<UINT> m_bb_order;
+
     void addDump(IR const* ir) const;
     void dumpInit();
     void dumpFini();
@@ -66,8 +69,70 @@ public:
     virtual PASS_TYPE getPassType() const { return PASS_INVERT_BRTGT; }
     OptCtx * getOptCtx() const { return m_oc; }
 
-    static bool invertLoop(InvertBrTgt * invt, IR * br, IRBB * br_tgt,
-                             IR * jmp, IRBB * jmp_tgt);
+    //This function is used to further validate whether this optimization
+    //is feasible based on the characteristics of different architectures.
+    //These characteristics may limit the performance of the optimization.
+    //For example, though the inverted br optimization can reduce a 'goto'
+    //instruction when the program jump back to loop, it may occurs branch
+    //prediction failure. Ultimately, there may be no performance gains
+    //from it. Thus the characteristics of branch prediction needs to be
+    //considered before inverted falsebr/truebr in br instruction according
+    //to different architectures.
+    //'head_bb': the head BB of loop.
+    //'br_bb':  the BB to which br instruction belong.
+    //'out_bb': the first outside BB of loop.
+    //return: whether the program can benefits from this optimization
+    //        after other characteristics in architecture considered.
+    bool canBeInvertedBRCandidate(IRBB const* head_bb, IRBB const* br_bb,
+                                  IRBB const* out_bb);
+
+    //Branch prediction may affect the performance of inverted br optimization.
+    //Thus this characteristics needs to be considered. And there is different
+    //branch prediction implemented in different architectures, this function
+    //is used to validate the effect. For example, the sign of value in br
+    //instruction may be used to determined the predicted direction in static
+    //branch prediction, then BB order may affect the performance.
+    //e.g.:
+    //  the format of branch instruction: br disp.
+    //    a.'disp' represents the distance of the target BB from current pc.
+    //    b.if the value in 'disp' is negative, the predicted of br is taken.
+    //      if the value in 'disp' is positive, the predicted of br is no-taken.
+    //Based on the above, the predicted direction will be determined by the
+    //BB order. Thus 'm_bb_order' that record the BB order will be used to
+    //judge the br direction and whether can be gained from this optimization.
+    //'head_bb': the head BB of loop.
+    //'br_bb':  the BB to which br instruction belong.
+    //'out_bb': the first outside BB of loop.
+    //return: whether the program can benefits from this optimization
+    //        after branch prediction characteristics considered.
+    virtual bool canBeGainedAfterConsideredBranchPrediction(
+        IRBB const* head_bb, IRBB const* br_bb, IRBB const* out_bb)
+    {
+        ASSERT0(head_bb && br_bb && out_bb);
+        return true;
+    }
+
+    //Implement the inverted br function.
+    //'br': represent falsebr/truebr instrctuion.
+    //'br_tgt': BB to which 'br' belong.
+    //'jmp': 'goto LABEL' instruction, 'LABEL' will be changed after inverted.
+    //'jmp': BB to which 'jmp' belong.
+    //Return true if there is loop changed.
+    bool invertLoop(MOD IR * br, MOD IRBB * br_tgt,
+                    MOD IR * jmp, MOD IRBB * jmp_tgt);
+
+    //The entry function to iterative loop to implement inverted br function.
+    //'li': LoopInfo Tree:
+    //Return true if there is loop changed.
+    bool iterLoopTree(LI<IRBB> const* li);
+
+    //Record BB order into 'm_bb_order'.
+    void recordBBOrder();
+
+    //Find the suitable loop and implement the inverted br function.
+    //'li': LoopInfo Tree:
+    //Return true if there is loop changed.
+    bool tryInvertLoop(LI<IRBB> const* li);
 
     virtual bool perform(OptCtx & oc);
 };

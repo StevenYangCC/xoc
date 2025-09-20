@@ -54,7 +54,7 @@ void IR2MInst::convertLabel(
     ASSERT0(mi);
     MI_ir(mi) = ir;
     ASSERT0(ir->getLabel());
-    MI_lab(mi) = ir->getLabel();
+    LABMI_lab(mi) = ir->getLabel();
     mis.append_tail(mi);
     IMCTX_label_num(cont)++;
 }
@@ -108,7 +108,7 @@ void IR2MInst::convertBBLabel(
          li = bb->getLabelListConst().get_next(&it)) {
         MInst * mi = m_mimgr->buildLabel();
         ASSERT0(mi && li);
-        MI_lab(mi) = li;
+        LABMI_lab(mi) = li;
         mis.append_tail(mi);
         IMCTX_label_num(cont)++;
     }
@@ -126,7 +126,7 @@ void IR2MInst::processHintOfAfterRet(OUT RecycMIList & mis, MOD IMCtx * cont)
         MInst * mi = m_mimgr->buildLabel();
         LabelInfo const* li = (*hint_ir_v)[i];
         ASSERT0(mi && li);
-        MI_lab(mi) = li;
+        LABMI_lab(mi) = li;
         mis.append_tail(mi);
         IMCTX_label_num(cont)++;
     }
@@ -277,8 +277,8 @@ void IR2MInst::convertCFIDefCfa(
     MInst * mi = getMIMgr()->buildCFIDefCfa();
     ASSERT0(mi);
     MI_ir(mi) = ir;
-    MI_cfi_def_cfa_offset(mi) = cfa_offset;
-    MI_cfi_def_cfa_register(mi) = reg_num;
+    CFIDEFCFAMI_offset(mi) = cfa_offset;
+    CFIDEFCFAMI_register(mi) = reg_num;
     mis.append_tail(mi);
     mis.copyDbx(ir, getDbxMgr());
     IMCTX_cfi_num(cont)++;
@@ -296,7 +296,7 @@ void IR2MInst::convertCFISameValue(
     MInst * mi = getMIMgr()->buildCFISameValue();
     ASSERT0(mi);
     MI_ir(mi) = ir;
-    MI_cfi_samevalue_register(mi) = reg_num;
+    CFISAMEVALMI_register(mi) = reg_num;
 
     mis.append_tail(mi);
     mis.copyDbx(ir, getDbxMgr());
@@ -320,8 +320,8 @@ void IR2MInst::convertCFIOffset(
     ASSERT0(mi);
     MI_ir(mi) = ir;
 
-    MI_cfi_offset_offset(mi) = offset;
-    MI_cfi_offset_register(mi)  = reg_num;
+    CFIOFFSETMI_offset(mi) = offset;
+    CFIOFFSETMI_register(mi)  = reg_num;
     mis.append_tail(mi);
     mis.copyDbx(ir, getDbxMgr());
     IMCTX_cfi_num(cont)++;
@@ -340,7 +340,7 @@ void IR2MInst::convertCFIRestore(
     MInst * mi = getMIMgr()->buildCFIRestore();
     ASSERT0(mi);
     MI_ir(mi) = ir;
-    MI_cfi_restore_register(mi) = reg_num;
+    CFIRESTOREMI_register(mi) = reg_num;
 
     mis.append_tail(mi);
     mis.copyDbx(ir, getDbxMgr());
@@ -360,7 +360,7 @@ void IR2MInst::convertCFICfaOffset(
     MInst * mi = getMIMgr()->buildCFIDefCfaOffset();
     ASSERT0(mi);
     MI_ir(mi) = ir;
-    MI_cfi_def_cfa_offset_offset(mi) = cfa_offset;
+    CFIDEFCFAOFFSETMI_offset(mi) = cfa_offset;
 
     mis.append_tail(mi);
     mis.copyDbx(ir, getDbxMgr());

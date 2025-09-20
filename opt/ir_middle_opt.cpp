@@ -127,7 +127,7 @@ void Region::postSimplify(MOD SimpCtx & simp, MOD OptCtx & oc)
         oc.setInvalidPRDU();
         SIMP_need_rebuild_pr_du_chain(&simp) = false;
     }
-    if (g_invert_branch_target) {
+    if (g_do_invert_brtgt) {
         getPassMgr()->registerPass(PASS_INVERT_BRTGT)->perform(oc);
     }
     getCFG()->performMiscOpt(oc);
@@ -179,6 +179,10 @@ bool Region::performSimplifyImpl(MOD SimpCtx & simp, OptCtx & oc)
         }
         xoc::removeClassicDUChain(this, rmprdu, rmnonprdu);
     }
+    //////////////////////////////////////////
+    //FIXME: remove the redundant code ASAP. //
+    getMDMgr()->assignMD();                 //
+    //////////////////////////////////////////
     ASSERT0L3(verifyClassicDUChain(this, oc));
     ASSERT0(PRSSAMgr::verifyPRSSAInfo(this, oc));
     ASSERT0(MDSSAMgr::verifyMDSSAInfo(this, oc));
@@ -365,48 +369,68 @@ bool Region::doSimplyDCEByClassicDU(OptCtx & oc)
 }
 
 
-static void assignDummyUseForCallInIRList(IR * irlst, Region const* rg)
+static void assignDummyUseInIRList(Region * rg)
 {
+    ASSERT0(rg);
+    IR * irlst = rg->getIRList();
     if (irlst == nullptr) { return; }
-    IRMgr * irmgr = rg->getIRMgr();
-    ASSERT0(irmgr);
+    IRIter innerit;
     for (IR * ir = irlst; ir != nullptr; ir = ir->get_next()) {
-        if (ir->isCallStmt() && !CALL_is_intrinsic(ir)) {
-            irmgr->genDummyuseForCallStmt(ir);
+        innerit.clean();
+        for (IR * inner = iterInit(ir, innerit); inner != nullptr;
+             inner = iterNext(innerit)) {
+            rg->assignDummyUseForIR(inner);
         }
     }
 }
 
 
-static void assignDummyUseForCallInBBList(BBList const* bblst, Region const* rg)
+static void assignDummyUseInBBList(Region * rg)
 {
+    BBList const* bblst = rg->getBBList();
     if (bblst == nullptr) { return; }
-    IRMgr * irmgr = rg->getIRMgr();
-    ASSERT0(irmgr);
-    BBListIter bbct;
-    for (bblst->get_head(&bbct);
-         bbct != nullptr; bbct = bblst->get_next(bbct)) {
-        IRBB * bb = bbct->val();
-
-        //For now, CallStmt is always BB lower boundary.
-        IR * lastir = BB_last_ir(bb);
-        if (lastir == nullptr || !lastir->isCallStmt() ||
-            CALL_is_intrinsic(lastir) || lastir->isReadOnly()) {
-            continue;
+    BBListIter bbit;
+    BBIRListIter irit;
+    IRIter innerit;
+    for (bblst->get_head(&bbit); bbit != nullptr;
+         bbit = bblst->get_next(bbit)) {
+        IRBB * bb = bbit->val();
+        ASSERT0(bb);
+        BBIRList & irlst = bb->getIRList();
+        for (IR * ir = irlst.get_head(&irit); ir != nullptr;
+             ir = irlst.get_next(&irit)) {
+            innerit.clean();
+            for (IR * inner = iterInit(ir, innerit); inner != nullptr;
+                 inner = iterNext(innerit)) {
+                rg->assignDummyUseForIR(inner);
+            }
         }
-        irmgr->genDummyuseForCallStmt(lastir);
     }
 }
 
 
-void Region::assignDummyUseForCall()
+void Region::assignDummyUse()
 {
-    if (getIRList() != nullptr) {
-        assignDummyUseForCallInIRList(getIRList(), this);
-        return;
+    return getIRList() != nullptr ? assignDummyUseInIRList(this) :
+        assignDummyUseInBBList(this);
+}
+
+
+void Region::assignDummyUseForIR(IR * ir)
+{
+    ASSERT0(ir);
+    switch (ir->getCode()) {
+    SWITCH_CASE_CALL: {
+        if (CALL_is_intrinsic(ir)) { break; }
+        IRBB * bb = ir->getBB();
+        if (bb != nullptr && (BB_last_ir(bb) != ir || ir->isReadOnly())) {
+            break;
+        }
+        getIRMgr()->genDummyuseForCallStmt(ir);
+        break;
     }
-    BBList const* bblst = getBBList();
-    assignDummyUseForCallInBBList(bblst, this);
+    default: assignDummyUseForIRExt(ir); break;
+    }
 }
 
 
@@ -424,7 +448,7 @@ bool Region::doAA(OptCtx & oc)
     ASSERT0(getPassMgr());
     ASSERT0(g_cst_bb_list && oc.isPassValid(PASS_CFG));
     doAssignDirectRefMD(oc);
-    assignDummyUseForCall();
+    assignDummyUse();
     getPassMgr()->checkValidAndRecompute(
         &oc, PASS_DOM, PASS_LOOP_INFO, PASS_AA, PASS_UNDEF);
     return true;
@@ -524,13 +548,20 @@ bool Region::doMDRef(OptCtx & oc)
 }
 
 
+bool Region::doClassicDU(OptCtx & oc)
+{
+    DUMgr * dumgr = (DUMgr*)getPassMgr()->registerPass(PASS_DU_MGR);
+    ASSERT0(dumgr);
+    bool changed = dumgr->checkAndComputeClassicDUChain(oc);
+    return changed;
+}
+
+
 bool Region::doMDRefAndClassicDU(OptCtx & oc)
 {
     ASSERT0(getPassMgr());
     bool changed = doMDRef(oc);
-    DUMgr * dumgr = (DUMgr*)getPassMgr()->registerPass(PASS_DU_MGR);
-    ASSERT0(dumgr);
-    changed |= dumgr->checkAndComputeClassicDUChain(oc);
+    changed |= doClassicDU(oc);
     return changed;
 }
 
@@ -609,7 +640,7 @@ bool Region::MiddleProcess(OptCtx & oc)
     }
     if (g_opt_level > OPT_LEVEL0) {
         getPassMgr()->registerPass(PASS_SCALAR_OPT)->perform(oc);
-        if (g_invert_branch_target) {
+        if (g_do_invert_brtgt) {
             getPassMgr()->registerPass(PASS_INVERT_BRTGT)->perform(oc);
         }
     }

@@ -89,6 +89,8 @@ public:
         m_to = nullptr;
         m_info = nullptr;
     }
+
+    //Get the Attach Info.
     void * info() const { return EDGE_info(this); }
 
     Vertex * from() const { return EDGE_from(this); }
@@ -636,11 +638,11 @@ public:
 
     //Return true if 'v' is the entry of current graph.
     bool is_graph_entry(Vertex const* v) const
-    { ASSERT0(v); return v->getInList() == nullptr; }
+    { ASSERT0(v && isVertex(v)); return v->getInList() == nullptr; }
 
     //Return true if vertex is the exit of current graph.
     bool is_graph_exit(Vertex const* v) const
-    { ASSERT0(v); return v->getOutList() == nullptr; }
+    { ASSERT0(v && isVertex(v)); return v->getOutList() == nullptr; }
 
     //Return true if In-Degree of 'vex' equal to 'num'.
     bool isInDegreeEqualTo(Vertex const* vex, UINT num) const;
@@ -671,6 +673,10 @@ public:
     //Return true if there is at least an edge that from 'from' to 'to'.
     bool isEdge(Vertex const* from, Vertex const* to) const
     { return isEdge(from->id(), to->id()); }
+
+    //Return true if e is the edge that allocated in current graph.
+    bool isEdge(Edge const* e) const
+    { return getEdge(e->from()->id(), e->to()->id()) == e; }
 
     //The function try to answer whether 'reachin' can reach 'vex' from one of
     //in-vertexs of 'vex'. Return false if it is not or unknown.
@@ -778,8 +784,13 @@ public:
     //  1. mem pool should have been initialized
     //  2. Graph should be erased before resize.
     void resize(UINT vertex_hash_sz);
-    Edge * reverseEdge(Edge * e); //Reverse edge direction.(e.g: a->b => b->a)
-    void reverseEdges(); //Reverse all edges.
+
+    //Reverse edge direction.(e.g: a->b => b->a).
+    Edge * reverseEdge(Edge * e);
+
+    //Reverse all edges.
+    void reverseEdges();
+
     //pos_in_outlist: optional, record the position in outlist of 'from' of 'e'
     //pos_in_inlist: optional, record the position in inlist of 'to' of 'e'
     Edge * removeEdge(Edge * e, OUT UINT * pos_in_outlist = nullptr,

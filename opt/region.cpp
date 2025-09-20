@@ -1270,19 +1270,6 @@ void Region::destroyAttachInfoMgr()
 }
 
 
-//Ensure that each IR in ir_list must be allocated in current region.
-bool Region::verifyIROwnership()
-{
-    IR const* ir = getIRList();
-    if (ir == nullptr) { return true; }
-    for (; ir != nullptr; ir = ir->get_next()) {
-        ASSERTN(getIR(ir->id()) == ir,
-                ("ir id:%d is not allocated in region %s", getRegionName()));
-    }
-    return true;
-}
-
-
 //Dump all MD that related to Var.
 void Region::dumpVarMD(Var * v, UINT indent) const
 {
@@ -1599,7 +1586,7 @@ bool Region::processIRList(OptCtx & oc)
     //PRSSA has destructed classic DU chain.
     ASSERT0L3(PRSSAMgr::verifyPRSSAInfo(this, oc));
     ASSERT0L3(MDSSAMgr::verifyMDSSAInfo(this, oc));
-    ASSERT0L3(verifyClassicDUChain(this, oc));
+    ASSERT0L3(xoc::verifyClassicDUChain(this, oc));
     if (g_opt_level != OPT_LEVEL0) {
         //O0 does not build DU ref and DU chain.
         ASSERT0(getDUMgr() && getDUMgr()->verifyMDRef());
@@ -1751,7 +1738,7 @@ static void do_call_graph(Region * rg, OptCtx * oc)
 bool Region::process(OptCtx * oc)
 {
     ASSERTN(oc, ("Need OptCtx"));
-    ASSERT0(verifyIROwnership());
+    ASSERT0(xoc::verifyIROwnership(this));
     if (getIRList() == nullptr && getBBList()->is_empty()) {
         return true;
     }
@@ -1783,6 +1770,7 @@ bool Region::process(OptCtx * oc)
     if (g_infer_type) {
         getPassMgr()->registerPass(PASS_INFER_TYPE)->perform(*oc);
     }
+    ASSERT0(xoc::verifyIROwnership(this));
     post_process(this, oc);
     return true;
 ERR_RETURN:

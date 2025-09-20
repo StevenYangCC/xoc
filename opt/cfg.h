@@ -698,7 +698,7 @@ template <class BB, class XR>
 void CFG<BB, XR>::sortByDFSRecur(List<BB*> & new_bbl, BB * bb,
                                  Vector<bool> & visited)
 {
-    if (bb == nullptr) return;
+    if (bb == nullptr) { return; }
     visited.set(bb->id(), true);
     new_bbl.append_tail(bb);
     List<BB*> succs;

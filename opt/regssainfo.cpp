@@ -795,7 +795,7 @@ void RegPhi::dumpOpnd(
     prt(rg, "(");
     switch (opnd->getCode()) {
     case IR_CONST:
-        xoc::dumpConstContent(opnd, rg);
+        xoc::dumpConstContent(opnd, rg, nullptr);
         break;
     case IR_LDA:
         xoc::dumpIRName(opnd, rg);

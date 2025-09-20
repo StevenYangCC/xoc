@@ -336,15 +336,6 @@ Type const* ArgPasser::getCurrentDataType(UINT align)
     if (trailing_zeros == 3 || trailing_zeros == 4) {
         return m_tm->getU64();
     }
-    //e.g: 0b100000, align by 32 bytes.
-    if (trailing_zeros == 5) {
-        return m_tm->getVectorType(ELEM_NUM_OF_16_ELEM_VECTOR_TYPE, D_F16);
-    }
-    //e.g: 0b1000000, align by 64 bytes.
-    if (trailing_zeros == 6) {
-        return m_tm->getVectorType(ELEM_NUM_OF_16_ELEM_VECTOR_TYPE, D_U32);
-    }
-
     //e.g: 0b1, align by 1 byte.
     ASSERT0(trailing_zeros == 0);
     return m_tm->getU8();
@@ -483,9 +474,7 @@ Var const* ArgPasser::getCalleeFormalParamVar(IR const* ir, UINT position)
 {
     ASSERT0(ir && ir->isCallStmt());
 
-    //[TODO] Currently, the function definition corresponding to ICALL cannot
-    //       be obtained, and we need to wait for the support of llvm-pcx or
-    //       some other ways.
+    //NOTE:ICALL can not obtain callee's var name.
     if (ir->is_icall()) { return nullptr; }
 
     Region * callee_region = m_rg->getRegionMgr()->getRegion(CALL_idinfo(ir));
@@ -505,9 +494,7 @@ void ArgPasser::processArgument(
     IRList irlst;
     IR * new_arg_list = nullptr;
 
-    //[TODO] We can also handle ir with no id info (IR_ICALL) after LLVM-PCX
-    //       adds enough function pointer information on it. Temporarily we
-    //       handle IR_CALL only.
+    //NOTE:ICALL can not obtain callee's var name, handle IR_CALL only.
     // ASSERT0(ir->is_call() && CALL_idinfo(ir));
 
     UINT position = 0; //Arguments index.
@@ -726,18 +713,12 @@ void ArgPasser::initRegBindInfo()
 }
 
 
-void ArgPasser::appendIRToGetStartAddressOfParamsInEntryFunc(OUT PRNO & prno)
+PRNO ArgPasser::getStartAddressPrnoOfParamsInEntryFuncAndAppendIRIfNeeded()
 {
-    ASSERT0(m_rg->getCFG() && m_rg->getCFG()->getEntry());
-    IRBB * bb = m_rg->getCFG()->getEntry();
+    ASSERT0(m_tm && m_lsra);
+
     Type const* tp = m_tm->getTargMachRegisterType();
-
-    PRNO prno_dedicated = m_lsra->buildPrnoAndSetReg(
-        tp, m_lsra->getParamScalarStart());
-    prno = m_irmgr->buildPrno(tp);
-    IR * ir = m_irmgr->buildMove(prno, prno_dedicated, tp);
-
-    bb->getIRList().append_tail(ir);
+    return m_lsra->buildPrnoAndSetReg(tp, m_lsra->getParamScalarStart());
 }
 
 
@@ -756,9 +737,6 @@ void ArgPasser::appendCallIRArgsToStack(IR const* call_ir, Var const* v)
 void ArgPasser::appendIRToGetStartAddressOfMCInEntryFunc(
     IRBB * bb, PRNO start_address_prno, OUT UINT & offset, Var const* v)
 {
-    PRNO param_prno = m_irmgr->buildPrno(
-        m_tm->getTargMachRegisterType());
-
     //$start_address: the start address of total parameters.
     //The address of param = $start_address + current_offset.
     //For example:
@@ -769,6 +747,14 @@ void ArgPasser::appendIRToGetStartAddressOfMCInEntryFunc(
     // ------------------ current_offset = 16
     // |  param.B<24> p2| address(p2) = $start_address + current_offset.
     // ------------------
+    //If current param is the first one, no need to append IR like "add 0".
+    if (offset == 0) {
+        m_var2prno.set(v, start_address_prno);
+        offset += m_tm->getByteSize(v->getType());
+        return;
+    }
+
+    PRNO param_prno = m_irmgr->buildPrno(m_tm->getTargMachRegisterType());
     IR * stpr = m_irmgr->buildStorePR(param_prno, m_tm->getU64(),
         m_irmgr->buildBinaryOp(IR_ADD, m_tm->getU64(),
         m_irmgr->buildPRdedicated(start_address_prno,
@@ -812,8 +798,8 @@ void ArgPasser::processEntryFunction(List<xoc::Var const*> & param_list)
     ASSERT0(bb);
 
     //Get the start address of parameters in kernel function.
-    PRNO start_address_prno;
-    appendIRToGetStartAddressOfParamsInEntryFunc(start_address_prno);
+    PRNO start_address_prno =
+        getStartAddressPrnoOfParamsInEntryFuncAndAppendIRIfNeeded();
     ASSERT0(start_address_prno != PRNO_UNDEF);
 
     UINT offset = 0;

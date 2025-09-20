@@ -134,6 +134,30 @@ void BBIRList::extractRestIRIntoList(
         newlst.append_head(curlstit->val());
     }
 }
+
+
+void BBIRList::copy(IN List<IR*> & src)
+{
+    clean();
+    IR * ir = src.get_head();
+    for (INT n = src.get_elem_count(); n > 0; n--) {
+        xcom::EList<IR*, IR2Holder>::append_tail(ir);
+        ASSERT0(m_bb != nullptr);
+        if (ir->isStmtInBB()) {
+            ir->setBB(m_bb);
+        } else {
+            ASSERT0(ir->is_lab());
+        }
+        ir = src.get_next();
+    }
+}
+
+
+size_t BBIRList::count_mem() const
+{
+    return (size_t)sizeof(m_bb) +
+           ((xcom::EList<IR*, IR2Holder>*)this)->count_mem();
+}
 //END BBIRList
 
 
@@ -320,8 +344,8 @@ void IRBB::dumpAttr(Region const* rg) const
 }
 
 
-void IRBB::dumpIRList(Region const* rg, bool dump_inner_region,
-                      MOD BBDumpCtxMgr<> * ctx) const
+void IRBB::dumpIRList(
+    Region const* rg, bool dump_inner_region, MOD BBDumpCtxMgr<> * ctx) const
 {
     note(rg, "\nSTMT NUM:%d", getNumOfIR());
     rg->getLogMgr()->incIndent(3);
@@ -381,8 +405,8 @@ void IRBB::dumpDigest(Region const* rg) const
 }
 
 
-void IRBB::dump(Region const* rg, bool dump_inner_region,
-                MOD BBDumpCtxMgr<> * ctx) const
+void IRBB::dump(
+    Region const* rg, bool dump_inner_region, MOD BBDumpCtxMgr<> * ctx) const
 {
     if (!rg->isLogMgrInit()) { return; }
     dumpDigest(rg);
@@ -493,7 +517,6 @@ bool IRBB::verifyBranchLabel(Lab2BB const& lab2bb) const
     //Verify branch target label.
     IR * last = const_cast<IRBB*>(this)->getLastIR();
     if (last == nullptr) { return true; }
-
     if (last->isConditionalBr()) {
         ASSERTN(lab2bb.get(BR_lab(last)),
                 ("branch target cannot be nullptr"));
@@ -675,6 +698,115 @@ void IRBB::freeIRList(Region const* rg)
     }
     BB_irlist(this).clean();
 }
+
+
+bool IRBB::isAttachDedicatedLabel()
+{
+    for (LabelInfo const* li = getLabelList().get_head();
+         li != nullptr; li = getLabelList().get_next()) {
+        if (li->is_catch_start() || li->is_try_start() ||
+            li->is_try_end() || li->is_pragma()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+bool IRBB::isAttachIRRefedLabel()
+{
+    for (LabelInfo const* li = getLabelList().get_head();
+         li != nullptr; li = getLabelList().get_next()) {
+        if (li->is_refed_by_ir()) { return true; }
+    }
+    return false;
+}
+
+
+bool IRBB::mayThrowException() const
+{
+    IRListIter ct;
+    IR * x = BB_irlist(const_cast<IRBB*>(this)).get_tail(&ct);
+    if (x != nullptr && x->isMayThrow(true)) {
+        return true;
+    }
+    return false;
+}
+
+
+bool IRBB::hasLabel(LabelInfo const* lab) const
+{
+    LabelInfoListIter it;
+    IRBB * pthis = const_cast<IRBB*>(this);
+    for (LabelInfo const* li = pthis->getLabelList().get_head(&it);
+         li != nullptr; li = pthis->getLabelList().get_next(&it)) {
+        if (isSameLabel(li, lab)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+void IRBB::mergeLabeInfoList(IRBB * src)
+{
+    LabelInfoListIter it;
+    for (src->getLabelList().get_head(&it);
+         it != nullptr; it = src->getLabelList().get_next(it)) {
+        copyAttr(it->val());
+    }
+    //Note src's labellist will be moved to current BB.
+    getLabelList().move_head(src->getLabelList());
+    ASSERT0(src->getLabelList().get_elem_count() == 0);
+}
+
+
+bool IRBB::is_dom(IR const* ir1, IR const* ir2, bool is_strict) const
+{
+    ASSERT0(ir1 && ir2 && ir1->is_stmt() && ir2->is_stmt() &&
+            ir1->getBB() == this && ir2->getBB() == this);
+    if (is_strict) {
+        if (ir1 == ir2) {
+            return false;
+        }
+    } else {
+        if (ir1 == ir2) {
+            return true;
+        }
+    }
+    IRListIter ctir;
+    for (BB_irlist(this).get_head(&ctir);
+         ctir != BB_irlist(this).end();
+         ctir = BB_irlist(this).get_next(ctir)) {
+        IR * ir = ctir->val();
+        if (ir == ir1) {
+            return true;
+        }
+        if (ir == ir2) {
+            return false;
+        }
+    }
+    return false;
+}
+
+
+bool IRBB::is_dom(
+    IR const* ir1, IR const* ir2, IROrder const& order, bool is_strict) const
+{
+    ASSERT0(ir1 && ir2 && ir1->is_stmt() && ir2->is_stmt() &&
+            ir1->getBB() == this && ir2->getBB() == this);
+    if (is_strict && ir1 == ir2) {
+        return false;
+    }
+    UINT ir1order = order.get(ir1);
+    UINT ir2order = order.get(ir2);
+    ASSERTN(ir1order != 0 || ir2order != 0,
+            ("Neither ir1 nor ir2 has an order set "));
+    if (ir1order == 0) { return false; }
+    if (ir2order == 0) { return true; }
+    ASSERT0(ir1order != ir2order);
+    return ir1order < ir2order;
+}
 //END IRBB
 
 
@@ -814,8 +946,9 @@ void dumpBBLabel(LabelInfoList & lablist, Region const* rg)
 
 
 //filename: dump BB list into given filename.
-void dumpBBList(CHAR const* filename, BBList const* bbl, Region const* rg,
-                bool dump_inner_region, BBDumpCtxMgr<> * ctx)
+void dumpBBList(
+    CHAR const* filename, BBList const* bbl, Region const* rg,
+    bool dump_inner_region, BBDumpCtxMgr<> * ctx)
 {
     ASSERT0(filename);
     FileObj fo(filename, true, false);
@@ -826,8 +959,9 @@ void dumpBBList(CHAR const* filename, BBList const* bbl, Region const* rg,
 }
 
 
-void dumpBBList(BBList const* bbl, Region const* rg, bool dump_inner_region,
-                BBDumpCtxMgr<> * ctx)
+void dumpBBList(
+    BBList const* bbl, Region const* rg, bool dump_inner_region,
+    BBDumpCtxMgr<> * ctx)
 {
     ASSERT0(rg && bbl);
     if (!rg->isLogMgrInit() || bbl->get_elem_count() == 0) { return; }
@@ -840,8 +974,9 @@ void dumpBBList(BBList const* bbl, Region const* rg, bool dump_inner_region,
 }
 
 
-void dumpBBSet(BBSet const& bbs, Region const* rg, bool dump_inner_region,
-               BBDumpCtxMgr<> * ctx)
+void dumpBBSet(
+    BBSet const& bbs, Region const* rg, bool dump_inner_region,
+    BBDumpCtxMgr<> * ctx)
 {
     ASSERT0(rg);
     if (!rg->isLogMgrInit() || bbs.get_elem_count() == 0) { return; }

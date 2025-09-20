@@ -368,31 +368,31 @@ void MIGen::genFrameInfo(MIList & mcfi_list)
         case MI_cfi_def_cfa:
             symbol = dm->createVectorMCSymbol(m_rg, (UINT)pc, cfa_label);
             instructions->append(dwarf_res_mgr.allocCFIDefCfa(symbol,
-                MI_cfi_def_cfa_register(mi), MI_cfi_def_cfa_offset(mi)));
+                CFIDEFCFAMI_register(mi), CFIDEFCFAMI_offset(mi)));
             break;
         case MI_cfi_same_value:
             symbol = dm->createVectorMCSymbol(
                 m_rg, (UINT)pc, same_value_label);
             instructions->append(dwarf_res_mgr.allocSameValue(symbol,
-                MI_cfi_samevalue_register(mi)));
+                CFISAMEVALMI_register(mi)));
             break;
         case MI_cfi_offset:
             symbol = dm->createVectorMCSymbol(
                 m_rg, (UINT)pc, cfi_offset_label);
             instructions->append(dwarf_res_mgr.allocOffset(symbol,
-                MI_cfi_offset_register(mi), MI_cfi_offset_offset(mi)));
+                CFIOFFSETMI_register(mi), CFIOFFSETMI_offset(mi)));
             break;
         case MI_cfi_restore:
             symbol = dm->createVectorMCSymbol(
                 m_rg, (UINT)pc, cfi_restore_label);
             instructions->append(dwarf_res_mgr.allocRestore(symbol,
-                MI_cfi_restore_register(mi)));
+                CFIRESTOREMI_register(mi)));
             break;
         case MI_cfi_def_cfa_offset:
             symbol = dm->createVectorMCSymbol(
                 m_rg, (UINT)pc, cfa_offset_label);
             instructions->append(dwarf_res_mgr.allocDefCfaOffset(symbol,
-                MI_cfi_def_cfa_offset_offset(mi)));
+                CFIDEFCFAOFFSETMI_offset(mi)));
             break;
         default:
             UNREACHABLE();

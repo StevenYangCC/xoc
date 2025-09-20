@@ -815,8 +815,7 @@ public:
     LifeTime * getRegLifeTime(Reg reg) const { return m_reg2lt.get(reg); }
 
     //Merge the new lifetime 'lt_new' into the lifetime responding to the
-    //reg: the physical-register which is used as the base lifetime for
-    //     the merge operation.
+    //physical-register assigned.
     //lt_new: the lifetime of psesudo-register that will be merged into the
     //        lifetime of physical-register.
     //
