@@ -241,8 +241,6 @@ static bool canBeDeadStore(IR const* stmt, DSECtx const& ctx)
         return false;
     }
     MDSSAMgr const* mgr = ctx.getMDSSAMgr();
-    OptCtx const* oc = ctx.getOptCtx();
-    Region const* rg = ctx.getRegion();
     MDSSAInfo const* info = mgr->getMDSSAInfoIfAny(stmt);
     ASSERT0(info);
     VOpndSetIter it = nullptr;

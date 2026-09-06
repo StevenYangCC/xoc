@@ -719,28 +719,6 @@ static bool isFalsePartSelectOp(IR const* stmt, IR ** falseexp = nullptr)
 }
 
 
-static bool allBeTruePartSelectOp(IfCvsCtx::GenedList const& stmtlist)
-{
-    IRListIter it;
-    for (IR const* stmt = stmtlist.get_head(&it);
-         stmt != nullptr; stmt = stmtlist.get_next(&it)) {
-        ASSERT0(isTruePartSelectOp(stmt));
-    }
-    return true;
-}
-
-
-static bool allBeFalsePartSelectOp(IfCvsCtx::GenedList const& stmtlist)
-{
-    IRListIter it;
-    for (IR const* stmt = stmtlist.get_head(&it);
-         stmt != nullptr; stmt = stmtlist.get_next(&it)) {
-        ASSERT0(isFalsePartSelectOp(stmt));
-    }
-    return true;
-}
-
-
 static bool checkCanBeConvertToSelectOp(
     IRBB * truepart, IRBB * falsepart, DiamondRegion const& dr,
     MOD IfCvsCtx & ctx)
@@ -1520,6 +1498,7 @@ static bool reconstructDiamondRegionCase(
         ASSERT0(!ctx.useMDSSADU() ||
                 isDefOfMDPhiOpndInDistinctPartForPhiList(dr, ctx));
     }
+    DUMMYUSE(tryMergePartialSelectOpIntoCompleteOp);
     //TODO:tryMergePartialSelectOpIntoCompleteOp(truepart, falsepart, dr, ctx);
     removeCondBrInTop(dr, ctx);
     moveGenedStmtToTop(compdet, dr, ctx);

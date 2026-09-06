@@ -62,22 +62,6 @@ void VMDLivenessMgr::computeGlobal(IRCFG const* cfg)
 }
 
 
-static void collectDefMDSet(
-    LiveSet const* def, OUT MDSet & mdset, VMDLivenessMgr * vmdlivemgr)
-{
-    LiveSetIter vit;
-    MDSSAMgr * mdssamgr = vmdlivemgr->getMDSSAMgr();
-    DefMiscBitSetMgr * sbsmgr = vmdlivemgr->getSBSMgr();
-    for (BSIdx i = def->get_first(&vit);
-         i != BS_UNDEF; i = def->get_next(i, &vit)) {
-        VMD const* vmd = mdssamgr->getVMD(i);
-        ASSERT0(vmd);
-        ASSERT0(vmd->is_md());
-        mdset.bunion(vmd->mdid(), *sbsmgr);
-    }
-}
-
-
 void VMDLivenessMgr::computeKillReach(IRCFG const* cfg)
 {
     BBListIter it;
@@ -154,7 +138,7 @@ void VMDLivenessMgr::computeGlobalReach(IRCFG const* cfg)
                 }
             }
             //Compute reach_out by reach_in.
-            LiveSet const* livein = get_livein(bbid);
+            //LiveSet const* livein = get_livein(bbid);
             LiveSet const* kill = get_kill(bbid);
             LiveSet const* def = get_def(bbid);
             news.copy(*reach_in, m_sbs_mgr);

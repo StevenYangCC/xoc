@@ -37,27 +37,6 @@ namespace xoc {
 //a BB can include.
 #define MAX_IR_BIT_RANGE_IN_BB 16
 
-static void dumpFoldConst(
-    IR_CODE code, IR const* ir1, IR const* ir2, IR const* res,
-    AlgeDistributive const* dist)
-{
-    AlgeDistributive * pthis = const_cast<AlgeDistributive*>(dist);
-    if (!pthis->getRegion()->isLogMgrInit() ||
-        !g_dump_opt.isDumpPass(PASS_ALGE_DISTRIBUTIVE))
-    { return; }
-    xcom::StrBuf s1(32);
-    xcom::StrBuf s2(32);
-    xcom::StrBuf s3(32);
-    pthis->getRegion()->getLogMgr()->incIndent(2);
-    xoc::dumpIRToBuf(ir1, pthis->getRegion(), s1);
-    xoc::dumpIRToBuf(ir2, pthis->getRegion(), s2);
-    xoc::dumpIRToBuf(res, pthis->getRegion(), s3);
-    pthis->getRegion()->getLogMgr()->decIndent(2);
-    pthis->getActMgr().dumpAct("fold '%s' %s,%s \n  into%s",
-       IR::getIRCodeName(code), s1.getBuf(), s2.getBuf(), s3.getBuf());
-}
-
-
 static void dumpReplaceExp(
     IR const* orgrhs, IR const* newrhs, AlgeDistributive const* dist)
 {
@@ -72,22 +51,6 @@ static void dumpReplaceExp(
     pthis->getRegion()->getLogMgr()->decIndent(2);
     pthis->getActMgr().dumpAct(
         "replace %s \n  with %s", s1.getBuf(), s2.getBuf());
-}
-
-
-static void dumpSimpStmt(IR const* ir, AlgeDistributive const* dist)
-{
-    ASSERT0(ir->is_stmt());
-    AlgeDistributive * pthis = const_cast<AlgeDistributive*>(dist);
-    if (!pthis->getRegion()->isLogMgrInit() ||
-        !g_dump_opt.isDumpPass(PASS_ALGE_DISTRIBUTIVE))
-    { return; }
-    xcom::StrBuf s1(32);
-    pthis->getRegion()->getLogMgr()->incIndent(2);
-    xoc::dumpIRToBuf(ir, pthis->getRegion(), s1);
-    pthis->getRegion()->getLogMgr()->decIndent(2);
-    pthis->getActMgr().dumpAct(
-        "simplify %s \n  to lowest height.", s1.getBuf());
 }
 
 

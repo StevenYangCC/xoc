@@ -615,7 +615,7 @@ inline T * reverse_list(T * t)
 #define C_next(c) ((c)->next)
 #define C_prev(c) ((c)->prev)
 template <class T> class C {
-    COPY_CONSTRUCTOR(C<T>);
+    COPY_CONSTRUCTOR(C);
 public:
     C<T> * prev;
     C<T> * next;
@@ -643,7 +643,7 @@ public:
 #define SC_val(c) ((c)->value)
 #define SC_next(c) ((c)->next)
 template <class T> class SC {
-    COPY_CONSTRUCTOR(SC<T>);
+    COPY_CONSTRUCTOR(SC);
 public:
     SC<T> * next;
     T value;

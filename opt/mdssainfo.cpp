@@ -201,7 +201,6 @@ static void dumpDefDefChainRecur(
     MDDefSet const* nextset = mddef->getNextSet();
     if (nextset == nullptr) { return; }
     MDDefSetIter nit = nullptr;
-    bool first = true;
     rg->getLogMgr()->incIndent(2);
     for (BSIdx w = nextset->get_first(&nit);
         w != BS_UNDEF; w = nextset->get_next(w, &nit)) {

@@ -1365,7 +1365,6 @@ bool AlgeReassociate::combineLastTwoOpByMul(MOD ReassCtx & ctx)
     ASSERT0(linopvec.get_elem_count() >= 2);
     AlgeReassociate * reass = ctx.getAlgeReass();
     Region * rg = ctx.getRegion();
-    TypeMgr * tm = ctx.getTypeMgr();
     IRMgr * irmgr = ctx.getIRMgr();
     Refine * refine = ctx.getRefine();
     ASSERT0(reass->canBeReass(opc));

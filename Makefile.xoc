@@ -55,6 +55,7 @@ CFLAGS+=-Wall
 CFLAGS+=\
   -D$(TARG) \
   -D_SUPPORT_C11_ \
+  -Wno-overloaded-virtual\
   -Wno-unknown-pragmas \
   -Wno-write-strings \
   -Wsign-promo \

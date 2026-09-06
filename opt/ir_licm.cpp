@@ -2278,7 +2278,6 @@ static bool hasMultiDefInLoopByMDSSA(
     VOpndSetIter it = nullptr;
     VOpndSet const& vopndset = info->readVOpndSet();
     UseDefMgr const* udmgr = const_cast<MDSSAMgr*>(mgr)->getUseDefMgr();
-    MDSystem const* mdsys = mgr->getMDSystem();
     bool costly_analysis = true;
     for (BSIdx i = vopndset.get_first(&it); i != BS_UNDEF;
          i = vopndset.get_next(i, &it)) {
@@ -2391,7 +2390,6 @@ static bool canBeCoverByNextDef(
     VOpndSetIter it = nullptr;
     VOpndSet const& vopndset = info->readVOpndSet();
     UseDefMgr const* udmgr = const_cast<MDSSAMgr*>(mgr)->getUseDefMgr();
-    MDSystem const* mdsys = mgr->getMDSystem();
     bool costly_analysis = true;
     for (BSIdx i = vopndset.get_first(&it); i != BS_UNDEF;
          i = vopndset.get_next(i, &it)) {
